@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Schedule": {
+      "title": "Schedule",
+      "description": "운영 일정 데이터",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "teamName": { "type": "string" },
+        "leaderName": { "type": "string" },
+        "phone": { "type": "string" },
+        "date": { "type": "string" },
+        "location": { "type": "string" },
+        "keyword": { "type": "string" },
+        "count": { "type": "number" },
+        "memo": { "type": "string" }
+      },
+      "required": ["teamName", "leaderName", "date", "location", "keyword", "count"]
+    },
+    "ChangeRequest": {
+      "title": "ChangeRequest",
+      "description": "차수 변경 요청 데이터",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "our": { "$ref": "Schedule" },
+        "target": { "$ref": "Schedule" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["our", "target", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/schedules/{scheduleId}": {
+      "schema": "Schedule",
+      "description": "운영 일정 컬렉션"
+    },
+    "/changeRequests/{requestId}": {
+      "schema": "ChangeRequest",
+      "description": "차수 변경 요청 컬렉션"
+    }
+  }
+}

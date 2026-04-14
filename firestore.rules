@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: schedules
+    // Fields:
+    //   - id: number (required)
+    //   - teamName: string (required, max 100)
+    //   - leaderName: string (required, max 50)
+    //   - phone: string (required)
+    //   - date: string (required, format: M/D(Day))
+    //   - location: string (required)
+    //   - keyword: string (required)
+    //   - count: number (required)
+    //   - memo: string (optional)
+    //
+    // Collection: changeRequests
+    // Fields:
+    //   - id: number (required)
+    //   - our: map (required, Schedule schema)
+    //   - target: map (required, Schedule schema)
+    //   - status: string (required, enum: ['pending', 'approved', 'rejected'])
+    //   - timestamp: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.email == "idght351@gmail.com";
+    }
+
+    function isValidSchedule(data) {
+      return data.keys().hasAll(['teamName', 'leaderName', 'date', 'location', 'keyword', 'count', 'phone']) &&
+             data.teamName is string && data.teamName.size() <= 100 &&
+             data.leaderName is string && data.leaderName.size() <= 50 &&
+             data.phone is string && data.phone.size() <= 20 &&
+             data.date is string && data.date.size() <= 20 &&
+             data.location is string && data.location.size() <= 100 &&
+             data.keyword is string && data.keyword.size() <= 50 &&
+             data.count is number && data.count > 0 && data.count < 1000;
+    }
+
+    function isValidChangeRequest(data) {
+      return data.keys().hasAll(['our', 'target', 'status', 'timestamp']) &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.our is map && data.target is map &&
+             data.timestamp is string && data.timestamp.size() <= 50;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /changeRequests/{requestId} {
+      allow read: if true;
+      allow create: if isValidChangeRequest(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+    
+    match /test_connection/{docId} {
+      allow read, list: if true;
+    }
+  }
+}

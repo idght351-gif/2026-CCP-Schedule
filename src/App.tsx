@@ -306,9 +306,10 @@ ${isApproved ? `✨ 변경 확정 정보:
 오늘도 기분 좋은 하루 보내세요!`;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    // iOS uses semicolon for multiple recipients in some versions, but comma is standard for modern ones.
-    // However, for multiple recipients in a single string, comma is the most reliable across platforms.
-    const phones = `${req.our.phone},${req.target.phone}`;
+    // iOS requires semicolon (;) as a separator for multiple recipients in SMS links
+    // Android and others typically use comma (,)
+    const separator = isIOS ? ';' : ',';
+    const phones = `${req.our.phone}${separator}${req.target.phone}`;
     const bodyPrefix = isIOS ? '&' : '?';
     
     return `sms:${phones}${bodyPrefix}body=${encodeURIComponent(message)}`;
@@ -548,6 +549,15 @@ ${isApproved ? `✨ 변경 확정 정보:
       setToast({ message: '요청이 반려되었습니다.', type: 'error' });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'changeRequests');
+    }
+  };
+
+  const deleteRequest = async (requestId: number) => {
+    try {
+      await deleteDoc(doc(db, 'changeRequests', requestId.toString()));
+      setToast({ message: '요청 기록이 삭제되었습니다.', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'changeRequests');
     }
   };
 
@@ -1246,7 +1256,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                         </div>
                         
                         {(isAdmin || isSystemAdmin) && (
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2">
                             {req.status === 'pending' ? (
                               <>
                                 <button 
@@ -1270,6 +1280,14 @@ ${isApproved ? `✨ 변경 확정 정보:
                                 <Phone className="w-3.5 h-3.5" /> 단체 안내 문자 발송
                               </a>
                             )}
+                            
+                            <button 
+                              onClick={() => deleteRequest(req.id)}
+                              className="p-1.5 text-text-muted hover:text-pastel-pink hover:bg-pastel-pink/10 rounded-lg transition-colors"
+                              title="기록 삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         )}
                       </div>

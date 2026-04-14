@@ -31,6 +31,8 @@ import {
   auth, 
   googleProvider, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged, 
   collection, 
   doc, 
@@ -101,11 +103,27 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const calendarRef = useRef<FullCalendar>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Handle Redirect Result for Mobile Login
+  useEffect(() => {
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          setToast({ message: '로그인되었습니다.', type: 'success' });
+        }
+      } catch (error) {
+        console.error("Redirect login error:", error);
+      }
+    };
+    checkRedirect();
   }, []);
 
   // Auth Listener
@@ -160,8 +178,13 @@ export default function App() {
 
   const login = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (isMobile) {
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (error) {
+      console.error("Login error:", error);
       setToast({ message: '로그인에 실패했습니다.', type: 'error' });
     }
   };
@@ -277,7 +300,7 @@ ${isApproved ? `✨ 변경 확정 정보:
 오늘도 기분 좋은 하루 보내세요!`;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const separator = isIOS ? ',' : ';';
+    const separator = isIOS ? ',' : ','; // Try comma for both as it's more common now
     const phones = `${req.our.phone}${separator}${req.target.phone}`;
     const bodyPrefix = isIOS ? '&' : '?';
     
@@ -330,9 +353,32 @@ ${isApproved ? `✨ 변경 확정 정보:
       searchedTeamObj = schedules.find(item => item.teamName.includes(searchQuery.trim())) || null;
       if (searchedTeamObj) {
         const baseKeyword = searchedTeamObj.keyword.split('_').pop() || searchedTeamObj.keyword;
-        const group = schedules.filter(item => item.keyword.includes(baseKeyword));
-        // Put searched team at the top
-        data = [searchedTeamObj, ...group.filter(item => item.id !== searchedTeamObj!.id)];
+        
+        // Compatible teams logic
+        const isCompatible = (item: Schedule) => {
+          if (!searchedTeamObj) return false;
+          const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
+          if (isPending) return false;
+          return Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+                 (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
+                 (searchedTeamObj.location === item.location) &&
+                 searchedTeamObj.id !== item.id;
+        };
+
+        const compatibleTeams = schedules.filter(isCompatible);
+        const keywordGroup = schedules.filter(item => 
+          item.keyword.includes(baseKeyword) && 
+          item.id !== searchedTeamObj!.id && 
+          !compatibleTeams.some(ct => ct.id === item.id)
+        );
+        const others = schedules.filter(item => 
+          item.id !== searchedTeamObj!.id && 
+          !compatibleTeams.some(ct => ct.id === item.id) &&
+          !keywordGroup.some(kg => kg.id === item.id)
+        );
+
+        // Sort: Searched -> Compatible -> Keyword Group -> Others
+        data = [searchedTeamObj, ...compatibleTeams, ...keywordGroup, ...others];
       } else {
         data = [];
       }
@@ -550,11 +596,18 @@ ${isApproved ? `✨ 변경 확정 정보:
     setIsAgreed(false);
     setActiveTab('change');
     setFilterType('all');
-    setChangeStep('select_ours'); // Start from the first step as requested
+    setChangeStep('confirm');
     setSearchQuery('');
     setSelectedTeam(null);
     setActiveFilterMenu(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Scroll to instructions section
+    setTimeout(() => {
+      const element = document.getElementById('change-instructions');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
   };
 
   const getCompatibilityReason = (team: Schedule) => {
@@ -834,6 +887,7 @@ ${isApproved ? `✨ 변경 확정 정보:
             <div className="relative group">
               <Search className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
               <input 
+                ref={searchInputRef}
                 type="text"
                 placeholder="팀 이름을 입력해 주세요."
                 value={searchQuery}
@@ -1051,6 +1105,38 @@ ${isApproved ? `✨ 변경 확정 정보:
                   font-size: 1.1rem !important;
                   font-weight: 800;
                   color: #4B0082;
+                  margin: 0 15px !important;
+                }
+                .calendar-container .fc-prev-button, .calendar-container .fc-next-button {
+                  background: #6D28D9 !important;
+                  border: none !important;
+                  color: white !important;
+                  padding: 8px !important;
+                  border-radius: 50% !important;
+                  display: flex !important;
+                  align-items: center !important;
+                  justify-content: center !important;
+                  transition: all 0.2s !important;
+                  width: 32px !important;
+                  height: 32px !important;
+                  box-shadow: 0 2px 4px rgba(109, 40, 217, 0.2) !important;
+                }
+                .calendar-container .fc-prev-button:hover, .calendar-container .fc-next-button:hover {
+                  background: #5B21B6 !important;
+                  transform: scale(1.1);
+                }
+                .calendar-container .fc-toolbar-chunk {
+                  display: flex !important;
+                  align-items: center !important;
+                }
+                .calendar-container .fc-today-button {
+                  background: #6D28D9 !important;
+                  border: none !important;
+                  font-weight: 800 !important;
+                  text-transform: uppercase !important;
+                  font-size: 10px !important;
+                  padding: 6px 12px !important;
+                  border-radius: 10px !important;
                 }
                 .calendar-container .fc-col-header-cell {
                   background: #F9FAFB;
@@ -1207,7 +1293,7 @@ ${isApproved ? `✨ 변경 확정 정보:
           ) : activeTab === 'change' ? (
             <div className="space-y-6">
               {/* Change Instructions */}
-              <div className="bg-white border border-pastel-purple rounded-[32px] p-6 md:p-8 space-y-6 shadow-sm">
+              <div id="change-instructions" className="bg-white border border-pastel-purple rounded-[32px] p-6 md:p-8 space-y-6 shadow-sm scroll-mt-24">
                 <div className="inline-flex items-center gap-2 bg-primary-purple text-white px-4 py-2 rounded-full shadow-sm">
                   <AlertCircle className="w-4 h-4" />
                   <h3 className="text-sm font-black">차수 변경 요청 프로세스</h3>
@@ -1717,10 +1803,13 @@ ${isApproved ? `✨ 변경 확정 정보:
                   {filteredData.map((item, idx) => {
                     const isSearchedTeam = searchQuery && item.teamName.includes(searchQuery.trim());
                     const searchedTeamObj = searchQuery ? schedules.find(s => s.teamName.includes(searchQuery.trim())) : null;
-                    const isCompatible = searchedTeamObj && Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+                    
+                    const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
+                    
+                    const isCompatible = !isPending && searchedTeamObj && item.id !== searchedTeamObj.id &&
+                                        Math.abs(searchedTeamObj.count - item.count) <= 2 && 
                                         (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
-                                        (searchedTeamObj.location === item.location) &&
-                                        searchedTeamObj.id !== item.id;
+                                        (searchedTeamObj.location === item.location);
 
                     return (
                       <motion.div 
@@ -1729,7 +1818,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: idx * 0.02 }}
                         onClick={() => setSelectedTeam(item)}
-                        className={`p-5 space-y-4 active:bg-app-bg transition-all ${isSearchedTeam ? 'bg-primary-purple/5 border-l-4 border-primary-purple' : isCompatible ? 'bg-pastel-green/10 border-l-4 border-green-500' : ''}`}
+                        className={`p-5 space-y-4 active:bg-app-bg transition-all ${isSearchedTeam ? 'bg-primary-purple/5 border-l-4 border-primary-purple' : isCompatible ? 'bg-pastel-green/10 border-l-4 border-green-500' : ''} ${isPending ? 'opacity-60' : ''}`}
                       >
                         <div className="flex justify-between items-start gap-4">
                           <div className="space-y-1.5 flex-1">
@@ -1737,6 +1826,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                               <span className="font-black text-text-main text-base leading-tight">{item.teamName}</span>
                               {isSearchedTeam && <span className="text-[9px] bg-primary-purple text-white px-2 py-0.5 rounded-full font-black shadow-sm">검색됨</span>}
                               {isCompatible && <span className="text-[9px] bg-green-500 text-white px-2 py-0.5 rounded-full font-black shadow-sm">교환가능</span>}
+                              {isPending && (
+                                <span className="text-[9px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm">
+                                  차수변경요청중
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold text-text-muted">
                               <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {item.date}</span>
@@ -1753,17 +1847,31 @@ ${isApproved ? `✨ 변경 확정 정보:
                             {item.keyword.includes('우수조직') ? `우수_${item.keyword.split('_').pop()}` : item.keyword.split('_').pop()}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] font-bold">
-                          <div className="flex items-center gap-2 text-text-muted">
-                            <div className="w-6 h-6 rounded-full bg-app-bg flex items-center justify-center">
-                              <Users className="w-3 h-3" />
+                          <div className="flex items-center justify-between text-[11px] font-bold">
+                            <div className="flex items-center gap-2 text-text-muted">
+                              <div className="w-6 h-6 rounded-full bg-app-bg flex items-center justify-center">
+                                <Users className="w-3 h-3" />
+                              </div>
+                              <span>{item.count}명 참여</span>
                             </div>
-                            <span>{item.count}명 참여</span>
+                            <div className="flex items-center gap-2">
+                              {isCompatible && (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    quickChange(searchedTeamObj, item);
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-pastel-green text-green-700 text-[10px] rounded-lg hover:bg-green-100 transition-colors shadow-sm font-black"
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                  차수변경
+                                </button>
+                              )}
+                              <div className="flex items-center gap-1 text-primary-purple font-black">
+                                상세보기 <ChevronRight className="w-4 h-4" />
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 text-primary-purple font-black">
-                            상세보기 <ChevronRight className="w-4 h-4" />
-                          </div>
-                        </div>
                       </motion.div>
                     );
                   })}
@@ -2124,11 +2232,21 @@ ${isApproved ? `✨ 변경 확정 정보:
 
       {/* Footer Navigation (Mobile Style) */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-pastel-purple px-6 py-3 flex justify-around items-center z-30 md:hidden">
-        <button onClick={handleReset} className={`flex flex-col items-center gap-1 ${filterType === 'all' ? 'text-primary-purple' : 'text-text-muted'}`}>
+        <button 
+          onClick={() => {
+            handleReset(); 
+            setActiveTab('progress');
+            setTimeout(() => {
+              searchInputRef.current?.focus();
+              searchInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+          }} 
+          className={`flex flex-col items-center gap-1 ${activeTab === 'progress' && searchQuery ? 'text-primary-purple' : 'text-text-muted'}`}
+        >
           <Search className="w-5 h-5" />
-          <span className="text-[10px] font-bold">홈</span>
+          <span className="text-[10px] font-bold">우리팀 검색</span>
         </button>
-        <button onClick={startChangeFlow} className={`flex flex-col items-center gap-1 ${filterType === 'change' ? 'text-primary-purple' : 'text-text-muted'}`}>
+        <button onClick={startChangeFlow} className={`flex flex-col items-center gap-1 ${activeTab === 'change' ? 'text-primary-purple' : 'text-text-muted'}`}>
           <RefreshCw className="w-5 h-5" />
           <span className="text-[10px] font-bold">차수변경</span>
         </button>

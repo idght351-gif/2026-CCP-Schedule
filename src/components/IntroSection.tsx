@@ -44,7 +44,7 @@ export const IntroSection: React.FC = () => {
         className="bg-gradient-to-br from-white to-pastel-purple/10 rounded-[32px] md:rounded-[40px] p-6 md:p-12 border border-pastel-purple shadow-sm text-center"
       >
         <div className="max-w-3xl mx-auto mb-10 md:mb-14">
-          <p className="text-orange-500 font-black text-xs md:text-sm mb-2 tracking-widest uppercase">문화컨설팅</p>
+          <p className="text-orange-500 font-black text-2xl md:text-4xl mb-2 tracking-tight uppercase">문화컨설팅</p>
           <h2 className="text-2xl md:text-4xl font-black text-text-main mb-3 md:mb-4 tracking-tight">
             현대제철 조직문화 혁신, <br className="md:hidden" />
             <span className="text-primary-purple">그 소중한 여정</span>

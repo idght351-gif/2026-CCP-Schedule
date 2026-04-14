@@ -9,6 +9,7 @@ import {
   Key, 
   RefreshCw, 
   Phone, 
+  BookOpen,
   X, 
   CheckCircle2, 
   AlertCircle,
@@ -56,6 +57,24 @@ type TabType = 'progress' | 'change' | 'calendar' | 'requests';
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(() => {
+    return sessionStorage.getItem('app_unlocked') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput.trim() === '문화컨설팅') {
+      setIsUnlocked(true);
+      sessionStorage.setItem('app_unlocked', 'true');
+      setPasswordError(false);
+    } else {
+      setPasswordError(true);
+      setPasswordInput('');
+    }
+  };
+
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [changeRequests, setChangeRequests] = useState<{ id: number, our: Schedule, target: Schedule, status: 'pending' | 'approved' | 'rejected', timestamp: string }[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('progress');
@@ -80,7 +99,14 @@ export default function App() {
   const [editForm, setEditForm] = useState<Schedule | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const calendarRef = useRef<FullCalendar>(null);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Auth Listener
   useEffect(() => {
@@ -523,11 +549,12 @@ ${isApproved ? `✨ 변경 확정 정보:
     setTargetTeam(target);
     setIsAgreed(false);
     setActiveTab('change');
-    setFilterType('change');
-    setChangeStep('confirm');
+    setFilterType('all');
+    setChangeStep('select_ours'); // Start from the first step as requested
     setSearchQuery('');
     setSelectedTeam(null);
     setActiveFilterMenu(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const getCompatibilityReason = (team: Schedule) => {
@@ -666,6 +693,76 @@ ${isApproved ? `✨ 변경 확정 정보:
     );
   }
 
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-app-bg to-pastel-purple/20 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full bg-white rounded-[40px] p-8 md:p-12 shadow-2xl border border-pastel-purple text-center space-y-8"
+        >
+          <div className="w-20 h-20 bg-primary-purple rounded-3xl flex items-center justify-center mx-auto shadow-lg shadow-primary-purple/20">
+            <BookOpen className="w-10 h-10 text-white" />
+          </div>
+          
+          <div className="space-y-4">
+            <h2 className="text-2xl font-black text-text-main leading-tight">
+              2026 문화컨설팅 <br/> 운영 시스템
+            </h2>
+            <div className="bg-app-bg p-6 rounded-2xl border border-pastel-purple/30 text-sm text-text-muted leading-relaxed font-medium">
+              우리 팀의 '문화' 진단 결과를 바탕으로, 팀원이 함께 개선점을 찾아 스스로 ‘컨설팅’해보는 시간! <br/><br/>
+              이번에 참여하실 프로그램은 <br/>
+              <span className="text-primary-purple font-black text-lg">[ 2026 O O O O O ]</span> 입니다. <br/><br/>
+              빈칸에 들어갈 프로그램명을 입력해 주세요.
+            </div>
+          </div>
+
+          <form onSubmit={handleUnlock} className="space-y-4">
+            <div className="relative">
+              <input 
+                type="text"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="프로그램명을 입력하세요"
+                className={`w-full px-6 py-4 bg-app-bg border-2 rounded-2xl text-center font-bold text-lg focus:outline-none transition-all ${passwordError ? 'border-red-400 animate-shake' : 'border-pastel-purple focus:border-primary-purple'}`}
+              />
+              {passwordError && (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-red-500 text-xs font-bold mt-2"
+                >
+                  정답이 아닙니다. 다시 한번 생각해 보세요!
+                </motion.p>
+              )}
+            </div>
+            <button 
+              type="submit"
+              className="w-full py-4 bg-primary-purple hover:bg-primary-purple/90 text-white rounded-2xl font-black text-lg shadow-lg shadow-primary-purple/20 transition-all active:scale-95"
+            >
+              입장하기
+            </button>
+          </form>
+
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest">
+            현대제철 조직문화 혁신 프로젝트
+          </p>
+        </motion.div>
+        
+        <style>{`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+          }
+          .animate-shake {
+            animation: shake 0.2s ease-in-out 0s 2;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-app-bg font-sans text-text-main pb-20">
       <Header 
@@ -733,17 +830,17 @@ ${isApproved ? `✨ 변경 확정 정보:
 
         {/* Team Search Section - Only show in Progress/Calendar view */}
         {(activeTab === 'progress' || activeTab === 'calendar') && (
-          <section className="bg-white rounded-[24px] shadow-sm border border-pastel-purple p-2">
+          <section className="bg-white rounded-[24px] shadow-sm border border-pastel-purple p-1 md:p-2">
             <div className="relative group">
-              <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
+              <Search className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
               <input 
                 type="text"
-                placeholder="찾으시는 팀 이름을 입력해 주세요."
+                placeholder="팀 이름을 입력해 주세요."
                 value={searchQuery}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => {
                   setSearchQuery(e.target.value);
                 }}
-                className="w-full pl-14 pr-6 py-4 bg-transparent border-none focus:outline-none font-medium placeholder:text-text-muted text-lg"
+                className="w-full pl-10 md:pl-14 pr-4 md:pr-6 py-3 md:py-4 bg-transparent border-none focus:outline-none font-medium placeholder:text-text-muted text-sm md:text-lg"
               />
             </div>
           </section>
@@ -751,22 +848,22 @@ ${isApproved ? `✨ 변경 확정 정보:
 
         {/* Filter Buttons Section - Redesigned */}
         {(activeTab === 'progress' || activeTab === 'calendar') && (
-          <section className="bg-white p-8 rounded-[32px] border border-pastel-purple shadow-sm space-y-8">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-3 mr-4 border-r pr-8 border-pastel-purple">
+          <section className="bg-white p-4 md:p-8 rounded-[24px] md:rounded-[32px] border border-pastel-purple shadow-sm space-y-4 md:space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+              <div className="hidden md:flex items-center gap-3 mr-4 border-r pr-8 border-pastel-purple">
                 <div className="w-10 h-10 rounded-xl bg-pastel-purple flex items-center justify-center">
                   <Search className="w-5 h-5 text-primary-purple" />
                 </div>
                 <span className="text-sm font-extrabold text-text-main uppercase tracking-tight">상세 필터링</span>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 md:flex-wrap no-scrollbar">
                 <button 
                   onClick={() => {
                     const next = activeFilterMenu === 'month' ? null : 'month';
                     setActiveFilterMenu(next);
                     if (next === null) { setFilterType('all'); setFilterValue(''); }
                   }}
-                  className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all border-2 ${activeFilterMenu === 'month' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
+                  className={`flex-shrink-0 px-5 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold transition-all border-2 ${activeFilterMenu === 'month' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
                 >
                   월별 일정
                 </button>
@@ -776,7 +873,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                     setActiveFilterMenu(next);
                     if (next === null) { setFilterType('all'); setFilterValue(''); }
                   }}
-                  className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all border-2 ${activeFilterMenu === 'location' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
+                  className={`flex-shrink-0 px-5 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold transition-all border-2 ${activeFilterMenu === 'location' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
                 >
                   장소별 일정
                 </button>
@@ -786,7 +883,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                     setActiveFilterMenu(next);
                     if (next === null) { setFilterType('all'); setFilterValue(''); }
                   }}
-                  className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all border-2 ${activeFilterMenu === 'keyword' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
+                  className={`flex-shrink-0 px-5 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold transition-all border-2 ${activeFilterMenu === 'keyword' ? 'bg-primary-purple border-primary-purple text-white shadow-lg shadow-primary-purple/20' : 'bg-app-bg border-transparent text-text-muted hover:border-pastel-purple'}`}
                 >
                   키워드별 일정
                 </button>
@@ -864,17 +961,18 @@ ${isApproved ? `✨ 변경 확정 정보:
         {/* Content Area */}
         <section className="space-y-4">
           {activeTab === 'calendar' ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-pastel-purple p-6 calendar-container">
+            <div className="bg-white rounded-2xl shadow-sm border border-pastel-purple p-4 md:p-6 calendar-container">
               <FullCalendar
                 ref={calendarRef}
                 plugins={[dayGridPlugin, interactionPlugin]}
                 initialView="dayGridMonth"
                 initialDate="2026-05-01"
                 locale="ko"
+                weekends={!isMobile}
                 headerToolbar={{
-                  left: 'prev,next today',
-                  center: 'title',
-                  right: ''
+                  left: '',
+                  center: 'prev title next',
+                  right: 'today'
                 }}
                 events={filteredData.map(s => {
                   // Parse date string like "5/14(목)" to "2026-05-14"
@@ -896,13 +994,13 @@ ${isApproved ? `✨ 변경 확정 정보:
                 eventContent={(eventInfo) => {
                   const s = eventInfo.event.extendedProps;
                   return (
-                    <div className="p-1 overflow-hidden">
-                      <div className="font-black truncate text-[10px] mb-0.5">{eventInfo.event.title}</div>
-                      <div className="flex flex-wrap gap-1 opacity-80">
+                    <div className="p-0.5 md:p-1 overflow-hidden">
+                      <div className="font-black truncate text-[8px] md:text-[10px] mb-0.5">{eventInfo.event.title}</div>
+                      <div className="hidden md:flex flex-wrap gap-1 opacity-80">
                         <span className="text-[8px] bg-white/40 px-1 rounded">{s.location}</span>
                         <span className="text-[8px] bg-white/40 px-1 rounded">{s.count}명</span>
                       </div>
-                      <div className="text-[8px] mt-0.5 font-medium truncate opacity-70">
+                      <div className="text-[7px] md:text-[8px] mt-0.5 font-medium truncate opacity-70">
                         #{s.keyword.includes('우수조직') ? `우수_${s.keyword.split('_').pop()}` : s.keyword.split('_').pop()}
                       </div>
                     </div>
@@ -910,7 +1008,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                 }}
                 dayCellClassNames={(arg) => {
                   const day = arg.date.getDay();
-                  return (day === 0 || day === 5 || day === 6) ? 'unavailable-day' : '';
+                  return (day === 0 || day === 6) ? 'unavailable-day' : '';
                 }}
                 eventClick={(info) => {
                   setSelectedTeam(info.event.extendedProps as Schedule);
@@ -920,8 +1018,8 @@ ${isApproved ? `✨ 변경 확정 정보:
                   const newDate = info.event.start;
                   if (newDate) {
                     const day = newDate.getDay();
-                    if (day === 0 || day === 5 || day === 6) {
-                      setToast({ message: '금, 토, 일요일은 일정을 배치할 수 없습니다.', type: 'error' });
+                    if (day === 0 || day === 6) {
+                      setToast({ message: '토, 일요일은 일정을 배치할 수 없습니다.', type: 'error' });
                       info.revert();
                       return;
                     }
@@ -1109,62 +1207,92 @@ ${isApproved ? `✨ 변경 확정 정보:
           ) : activeTab === 'change' ? (
             <div className="space-y-6">
               {/* Change Instructions */}
-              <div className="bg-pastel-purple border border-pastel-purple rounded-2xl p-6 space-y-4 shadow-sm">
-                <h3 className="text-base font-bold text-primary-purple flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
-                  차수 변경 요청 프로세스 (관리자 승인 필요)
-                </h3>
-                <div className="bg-white/60 p-5 rounded-xl border border-pastel-purple/30 text-sm text-text-main font-medium leading-relaxed space-y-3">
-                  <p>함께 성장하는 컨설팅 문화를 위해 상대 팀의 상황을 먼저 배려해 주셔서 감사합니다.</p>
-                  <p>원활한 일정 조정을 위해 상대 팀장님과 사전에 변경 가능 논의를 거치신 후 신청해 주세요.</p>
+              <div className="bg-white border border-pastel-purple rounded-[32px] p-6 md:p-8 space-y-6 shadow-sm">
+                <div className="inline-flex items-center gap-2 bg-primary-purple text-white px-4 py-2 rounded-full shadow-sm">
+                  <AlertCircle className="w-4 h-4" />
+                  <h3 className="text-sm font-black">차수 변경 요청 프로세스</h3>
+                </div>
+
+                <div className="bg-pastel-blue/20 p-5 rounded-2xl border-l-4 border-primary-purple text-sm text-text-main font-medium leading-relaxed space-y-3">
+                  <p>함께 성장하는 컨설팅 문화를 위해 <span className="text-primary-purple font-bold">상대 팀의 상황을 먼저 배려</span>해 주셔서 감사합니다.</p>
+                  <p>원활한 일정 조정을 위해 상대 팀장님과 <span className="bg-white/60 px-1.5 py-0.5 rounded border border-pastel-blue/30 font-bold text-blue-700">사전에 변경 가능 논의</span>를 거치신 후 신청해 주세요.</p>
                   <p>두 팀 모두 만족스러운 컨설팅이 될 수 있도록 정성껏 돕겠습니다!</p>
                 </div>
-                <ol className="text-sm text-primary-purple space-y-2 list-decimal list-inside font-bold">
-                  <li>변경을 희망하는 <b className="text-primary-purple underline decoration-pastel-pink underline-offset-4">우리 팀</b>을 먼저 선택하세요.</li>
-                  <li><b className="text-primary-purple">같은 키워드, 같은 지역, 비슷한 규모의 인원</b> 등 조건이 맞는 <b className="text-primary-purple underline decoration-pastel-pink underline-offset-4">상대 팀</b>을 선택하세요.</li>
-                  <li>상대 팀장님과 <b className="text-primary-purple underline decoration-pastel-pink underline-offset-4">사전 변경 논의</b>를 반드시 완료해 주세요.</li>
-                  <li>협의 완료 체크 후 <b className="text-primary-purple underline decoration-pastel-pink underline-offset-4">변경 요청 전송</b> 버튼을 클릭하세요.</li>
-                </ol>
-                <p className="text-xs text-text-muted mt-2 font-bold">* 관리자 최종 승인 후 일정이 업데이트됩니다.</p>
+
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3 p-4 bg-app-bg rounded-2xl border border-pastel-purple/30 group hover:border-primary-purple transition-all">
+                    <span className="w-6 h-6 rounded-full bg-white border border-pastel-purple flex items-center justify-center text-xs font-black text-primary-purple shrink-0 shadow-sm">1</span>
+                    <p className="text-sm text-text-main font-bold leading-snug">
+                      변경을 희망하는 <span className="bg-pastel-pink/60 px-1.5 py-0.5 rounded text-primary-purple">우리 팀</span>을 먼저 선택하세요.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3 p-4 bg-app-bg rounded-2xl border border-pastel-purple/30 group hover:border-primary-purple transition-all">
+                    <span className="w-6 h-6 rounded-full bg-white border border-pastel-purple flex items-center justify-center text-xs font-black text-primary-purple shrink-0 shadow-sm">2</span>
+                    <p className="text-sm text-text-main font-bold leading-snug">
+                      <span className="text-primary-purple underline decoration-pastel-orange decoration-2 underline-offset-2">같은 키워드, 지역, 비슷한 인원</span> 등 조건이 맞는 <span className="bg-pastel-orange/40 px-1.5 py-0.5 rounded text-orange-700">상대 팀</span>을 선택하세요.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3 p-4 bg-app-bg rounded-2xl border border-pastel-purple/30 group hover:border-primary-purple transition-all">
+                    <span className="w-6 h-6 rounded-full bg-white border border-pastel-purple flex items-center justify-center text-xs font-black text-primary-purple shrink-0 shadow-sm">3</span>
+                    <p className="text-sm text-text-main font-bold leading-snug">
+                      상대 팀장님과 <span className="bg-pastel-green/60 px-1.5 py-0.5 rounded text-green-700">사전 변경 논의</span>를 반드시 완료해 주세요.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3 p-4 bg-app-bg rounded-2xl border border-pastel-purple/30 group hover:border-primary-purple transition-all">
+                    <span className="w-6 h-6 rounded-full bg-white border border-pastel-purple flex items-center justify-center text-xs font-black text-primary-purple shrink-0 shadow-sm">4</span>
+                    <p className="text-sm text-text-main font-bold leading-snug">
+                      협의 완료 체크 후 <span className="bg-primary-purple text-white px-2 py-0.5 rounded-lg shadow-sm">변경 요청 전송</span> 버튼을 클릭하세요.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2 text-[11px] text-text-muted font-bold bg-pastel-purple/20 p-3 rounded-xl">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>관리자 최종 승인 후 일정이 실시간으로 업데이트됩니다.</span>
+                </div>
               </div>
 
               {/* Change Flow Stepper */}
-              <div className="flex items-center justify-between px-8 bg-white py-6 rounded-xl border border-pastel-purple shadow-sm">
-                <div className={`flex flex-col items-center gap-2 ${changeStep === 'select_ours' ? 'text-primary-purple' : 'text-text-muted'}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${changeStep === 'select_ours' ? 'border-primary-purple bg-pastel-purple font-bold scale-110' : 'border-pastel-purple'}`}>1</div>
-                  <span className="text-xs font-bold">우리팀 선택</span>
-                </div>
-                <div className="h-px bg-pastel-purple flex-1 mx-4"></div>
-                <div className={`flex flex-col items-center gap-2 ${changeStep === 'select_theirs' ? 'text-primary-purple' : 'text-text-muted'}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${changeStep === 'select_theirs' ? 'border-primary-purple bg-pastel-purple font-bold scale-110' : 'border-pastel-purple'}`}>2</div>
-                  <span className="text-xs font-bold">상대팀 검색</span>
-                </div>
-                <div className="h-px bg-pastel-purple flex-1 mx-4"></div>
-                <div className={`flex flex-col items-center gap-2 ${changeStep === 'confirm' ? 'text-primary-purple' : 'text-text-muted'}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${changeStep === 'confirm' ? 'border-primary-purple bg-pastel-purple font-bold scale-110' : 'border-pastel-purple'}`}>3</div>
-                  <span className="text-xs font-bold">요청 전송</span>
+              <div className="bg-white p-6 md:p-8 rounded-[32px] border border-pastel-purple shadow-sm">
+                <div className="flex items-center justify-between max-w-md mx-auto relative">
+                  <div className="absolute top-5 left-0 right-0 h-0.5 bg-pastel-purple -z-0"></div>
+                  
+                  <div className={`flex flex-col items-center gap-3 z-10 bg-white px-2 ${changeStep === 'select_ours' ? 'text-primary-purple' : 'text-text-muted'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all shadow-sm ${changeStep === 'select_ours' ? 'border-primary-purple bg-primary-purple text-white font-black scale-110' : 'border-pastel-purple bg-white'}`}>1</div>
+                    <span className="text-[11px] font-black uppercase tracking-tighter">우리팀 선택</span>
+                  </div>
+                  
+                  <div className={`flex flex-col items-center gap-3 z-10 bg-white px-2 ${changeStep === 'select_theirs' ? 'text-primary-purple' : 'text-text-muted'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all shadow-sm ${changeStep === 'select_theirs' ? 'border-primary-purple bg-primary-purple text-white font-black scale-110' : 'border-pastel-purple bg-white'}`}>2</div>
+                    <span className="text-[11px] font-black uppercase tracking-tighter">상대팀 검색</span>
+                  </div>
+                  
+                  <div className={`flex flex-col items-center gap-3 z-10 bg-white px-2 ${changeStep === 'confirm' ? 'text-primary-purple' : 'text-text-muted'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all shadow-sm ${changeStep === 'confirm' ? 'border-primary-purple bg-primary-purple text-white font-black scale-110' : 'border-pastel-purple bg-white'}`}>3</div>
+                    <span className="text-[11px] font-black uppercase tracking-tighter">요청 전송</span>
+                  </div>
                 </div>
               </div>
 
               {changeStep === 'select_ours' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-pastel-purple overflow-hidden">
-                  <div className="p-4 bg-app-bg border-b border-pastel-purple">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-text-main">변경을 원하는 우리 팀을 선택하세요</h3>
-                      <span className="text-xs text-text-muted">전체 {schedules.length}개 팀</span>
+                <div className="bg-white rounded-[32px] shadow-sm border border-pastel-purple overflow-hidden">
+                  <div className="p-6 md:p-8 bg-app-bg border-b border-pastel-purple space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-black text-text-main text-lg">변경을 원하는 우리 팀을 선택하세요</h3>
+                      <span className="text-xs font-bold text-primary-purple bg-pastel-purple px-3 py-1 rounded-full">전체 {schedules.length}개 팀</span>
                     </div>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                    <div className="relative group">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
                       <input 
                         type="text"
                         placeholder="우리 팀 이름을 적어주세요."
                         value={step1Search}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setStep1Search(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 bg-white border border-pastel-purple rounded-lg text-sm focus:ring-2 focus:ring-primary-purple/20 focus:border-primary-purple outline-none transition-all"
+                        className="w-full pl-12 pr-6 py-4 bg-white border-2 border-pastel-purple rounded-2xl text-base font-bold focus:ring-4 focus:ring-primary-purple/10 focus:border-primary-purple outline-none transition-all"
                       />
                     </div>
                   </div>
-                  <div className="divide-y divide-pastel-purple/30 max-h-[500px] overflow-y-auto">
+                  <div className="divide-y divide-pastel-purple/30 max-h-[500px] overflow-y-auto custom-scrollbar">
                     {schedules
                       .filter(item => item.teamName.includes(step1Search))
                       .map(item => {
@@ -1173,60 +1301,72 @@ ${isApproved ? `✨ 변경 확정 정보:
                         return (
                           <div 
                             key={item.id} 
-                            className={`p-4 flex items-center justify-between group transition-colors ${isPending ? 'bg-app-bg opacity-50 cursor-not-allowed' : 'hover:bg-pastel-purple cursor-pointer'}`}
+                            className={`p-6 flex items-center justify-between group transition-all ${isPending ? 'bg-app-bg opacity-50 cursor-not-allowed' : 'hover:bg-pastel-purple/30 cursor-pointer'}`}
                             onClick={() => !isPending && selectOurTeam(item)}
                           >
-                            <div>
+                            <div className="space-y-2">
                               <div className="flex items-center gap-2">
-                                <p className="font-bold text-text-main">{item.teamName}</p>
+                                <p className="font-black text-text-main text-base">{item.teamName}</p>
                                 {isPending && (
-                                  <span className="text-[10px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-bold">차수변경요청중</span>
+                                  <span className="text-[10px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-bold shadow-sm">차수변경요청중</span>
                                 )}
                               </div>
-                              <p className="text-xs text-text-muted">{item.date} | {item.keyword} | {item.location} | {item.count}명</p>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-text-muted">
+                                <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {item.date}</span>
+                                <span className="flex items-center gap-1"><Key className="w-3.5 h-3.5" /> {item.keyword}</span>
+                                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {item.location}</span>
+                                <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {item.count}명</span>
+                              </div>
                             </div>
-                            {!isPending && <ChevronRight className="w-5 h-5 text-text-muted group-hover:text-primary-purple transition-colors" />}
+                            {!isPending && <ChevronRight className="w-6 h-6 text-pastel-purple group-hover:text-primary-purple group-hover:translate-x-1 transition-all" />}
                           </div>
                         );
                       })}
                     {schedules.filter(item => item.teamName.includes(step1Search)).length === 0 && (
-                      <div className="p-10 text-center text-text-muted text-sm">검색 결과가 없습니다.</div>
+                      <div className="py-20 text-center space-y-4">
+                        <div className="w-16 h-16 bg-app-bg rounded-full flex items-center justify-center mx-auto">
+                          <Search className="w-8 h-8 text-pastel-purple" />
+                        </div>
+                        <p className="text-text-muted font-bold">검색 결과가 없습니다.</p>
+                      </div>
                     )}
                   </div>
                 </div>
               )}
 
               {changeStep === 'select_theirs' && ourTeam && (
-                <div className="space-y-4">
-                  <div className="bg-primary-purple text-white p-4 rounded-2xl shadow-md flex items-center justify-between">
-                    <div>
-                      <p className="text-xs opacity-80">선택된 우리 팀</p>
-                      <p className="font-bold text-lg">{ourTeam.teamName}</p>
-                      <p className="text-xs opacity-80">{ourTeam.date} | {ourTeam.keyword} | {ourTeam.location} | {ourTeam.count}명</p>
+                <div className="space-y-6">
+                  <div className="bg-primary-purple text-white p-6 md:p-8 rounded-[32px] shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="text-center md:text-left space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest opacity-80">선택된 우리 팀</p>
+                      <p className="font-black text-xl md:text-2xl">{ourTeam.teamName}</p>
+                      <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-1 text-xs font-bold opacity-90">
+                        <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> {ourTeam.date}</span>
+                        <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {ourTeam.location}</span>
+                        <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> {ourTeam.count}명</span>
+                      </div>
                     </div>
-                    <button onClick={() => setChangeStep('select_ours')} className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors">변경</button>
+                    <button onClick={() => setChangeStep('select_ours')} className="bg-white/20 hover:bg-white/30 px-6 py-3 rounded-2xl font-black text-sm transition-all active:scale-95">우리팀 다시 선택</button>
                   </div>
 
-                  <div className="bg-white rounded-2xl shadow-sm border border-pastel-purple overflow-hidden">
-                    <div className="p-4 bg-app-bg border-b border-pastel-purple">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="font-bold text-text-main">교환 가능한 상대 팀 리스트</h3>
-                          <p className="text-xs text-text-muted mt-1">조건: 인원 ±2명 & 동일 키워드 & 동일 장소</p>
-                        </div>
+                  <div className="bg-white rounded-[32px] shadow-sm border border-pastel-purple overflow-hidden">
+                    <div className="p-6 md:p-8 bg-app-bg border-b border-pastel-purple space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                        <h3 className="font-black text-text-main text-lg">교환 가능한 상대 팀 리스트</h3>
+                        <p className="text-[11px] font-bold text-primary-purple bg-pastel-purple px-3 py-1 rounded-full">조건: 인원 ±2명 & 동일 키워드 & 동일 장소</p>
                       </div>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                      <div className="relative group">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
                         <input 
                           type="text"
                           placeholder="상대 팀 이름을 적어주세요."
                           value={step2Search}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setStep2Search(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2 bg-white border border-pastel-purple rounded-lg text-sm focus:ring-2 focus:ring-primary-purple/20 focus:border-primary-purple outline-none transition-all"
+                          className="w-full pl-12 pr-6 py-4 bg-white border-2 border-pastel-purple rounded-2xl text-base font-bold focus:ring-4 focus:ring-primary-purple/10 focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
                     </div>
-                    <div className="divide-y divide-pastel-purple/30 max-h-[400px] overflow-y-auto">
+                    <div className="divide-y divide-pastel-purple/30 max-h-[500px] overflow-y-auto custom-scrollbar">
                       {schedules
                         .filter(item => item.id !== ourTeam.id && item.teamName.includes(step2Search))
                         .sort((a, b) => {
@@ -1250,16 +1390,16 @@ ${isApproved ? `✨ 변경 확정 정보:
                           return (
                             <div 
                               key={item.id} 
-                              className={`p-4 flex items-center justify-between transition-colors ${isCompatible ? 'hover:bg-pastel-green/30 cursor-pointer' : 'opacity-40 bg-app-bg cursor-not-allowed grayscale'}`}
+                              className={`p-6 flex items-center justify-between transition-all ${isCompatible ? 'hover:bg-pastel-green/20 cursor-pointer' : 'opacity-40 bg-app-bg cursor-not-allowed grayscale'}`}
                               onClick={() => isCompatible && selectTargetTeam(item)}
                             >
-                              <div className="flex-1">
+                              <div className="flex-1 space-y-2">
                                 <div className="flex items-center gap-2">
-                                  <p className="font-bold text-text-main">{item.teamName}</p>
+                                  <p className="font-black text-text-main text-base">{item.teamName}</p>
                                   {isPending ? (
-                                    <span className="text-[10px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-bold">차수변경요청중</span>
+                                    <span className="text-[10px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-bold shadow-sm">차수변경요청중</span>
                                   ) : isCompatible ? (
-                                    <div className="flex items-center gap-1 bg-pastel-green text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                    <div className="flex items-center gap-1 bg-pastel-green text-green-700 px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm">
                                       <RefreshCw className="w-2.5 h-2.5" />
                                       변경 가능
                                     </div>
@@ -1267,15 +1407,25 @@ ${isApproved ? `✨ 변경 확정 정보:
                                     <span className="text-[10px] bg-pastel-purple text-text-muted px-2 py-0.5 rounded-full font-bold">변경 불가</span>
                                   )}
                                 </div>
-                                <p className="text-xs text-text-muted">{item.date} | {item.keyword} | {item.location} | {item.count}명</p>
-                                {!isCompatible && <p className="text-[10px] text-text-muted mt-1 font-medium italic">사유: {reason}</p>}
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-text-muted">
+                                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {item.date}</span>
+                                  <span className="flex items-center gap-1"><Key className="w-3.5 h-3.5" /> {item.keyword}</span>
+                                  <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {item.location}</span>
+                                  <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {item.count}명</span>
+                                </div>
+                                {!isCompatible && <p className="text-[10px] text-red-400 mt-1 font-bold italic">사유: {reason}</p>}
                               </div>
-                              {isCompatible && <ChevronRight className="w-5 h-5 text-green-400" />}
+                              {isCompatible && <ChevronRight className="w-6 h-6 text-green-500 group-hover:translate-x-1 transition-all" />}
                             </div>
                           );
                         })}
                       {schedules.filter(item => item.id !== ourTeam.id && item.teamName.includes(step2Search)).length === 0 && (
-                        <div className="p-10 text-center text-text-muted text-sm">검색 결과가 없습니다.</div>
+                        <div className="py-20 text-center space-y-4">
+                          <div className="w-16 h-16 bg-app-bg rounded-full flex items-center justify-center mx-auto">
+                            <Search className="w-8 h-8 text-pastel-purple" />
+                          </div>
+                          <p className="text-text-muted font-bold">검색 결과가 없습니다.</p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1286,82 +1436,89 @@ ${isApproved ? `✨ 변경 확정 정보:
                 <motion.div 
                   initial={{ scale: 0.95, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="bg-white rounded-3xl shadow-xl border-2 border-pastel-purple p-8 space-y-8 text-center"
+                  className="bg-white rounded-[40px] shadow-2xl border-2 border-pastel-purple p-6 md:p-12 space-y-10 text-center"
                 >
-                  <div className="w-16 h-16 bg-pastel-orange rounded-full flex items-center justify-center mx-auto">
+                  <div className="w-20 h-20 bg-pastel-orange rounded-[32px] flex items-center justify-center mx-auto shadow-lg shadow-pastel-orange/20">
                     <AlertCircle className="w-10 h-10 text-primary-purple" />
                   </div>
-                  <div className="space-y-2">
-                    <h3 className="text-2xl font-black text-text-main tracking-tight">관리자에게 변경 요청을 보내시겠습니까?</h3>
-                    <p className="text-text-muted">요청이 승인되면 일정이 최종적으로 교체됩니다.</p>
+                  <div className="space-y-3">
+                    <h3 className="text-2xl md:text-3xl font-black text-text-main tracking-tight">관리자에게 변경 요청을 보내시겠습니까?</h3>
+                    <p className="text-sm md:text-base text-text-muted font-bold">요청이 승인되면 일정이 최종적으로 교체됩니다.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative">
-                    <div className="bg-app-bg p-6 rounded-2xl border border-pastel-purple text-left">
-                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">현재 (우리팀)</span>
-                      <p className="font-bold text-lg text-text-main mt-1">{ourTeam.teamName}</p>
-                      <div className="mt-3 space-y-1 text-sm text-text-muted">
-                        <p className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> {ourTeam.date}</p>
-                        <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5" /> {ourTeam.location}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                    <div className="bg-app-bg p-6 md:p-8 rounded-[32px] border border-pastel-purple text-left space-y-4 shadow-inner">
+                      <span className="inline-block text-[10px] font-black text-text-muted uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-pastel-purple/30">현재 (우리팀)</span>
+                      <div>
+                        <p className="font-black text-xl text-text-main">{ourTeam.teamName}</p>
+                        <div className="mt-4 space-y-2 text-sm font-bold text-text-muted">
+                          <p className="flex items-center gap-2.5"><Calendar className="w-4 h-4 text-primary-purple" /> {ourTeam.date}</p>
+                          <p className="flex items-center gap-2.5"><MapPin className="w-4 h-4 text-primary-purple" /> {ourTeam.location}</p>
+                          <p className="flex items-center gap-2.5"><Key className="w-4 h-4 text-primary-purple" /> {ourTeam.keyword}</p>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-white rounded-full border border-pastel-purple items-center justify-center z-10 shadow-sm">
-                      <RefreshCw className="w-5 h-5 text-primary-purple" />
+                    <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 bg-white rounded-2xl border-2 border-pastel-purple items-center justify-center z-10 shadow-xl">
+                      <RefreshCw className="w-7 h-7 text-primary-purple animate-spin-slow" />
                     </div>
 
-                    <div className="bg-pastel-blue p-6 rounded-2xl border border-pastel-blue/50 text-left">
-                      <span className="text-[10px] font-bold text-primary-purple uppercase tracking-widest">변경 희망 (상대팀)</span>
-                      <p className="font-bold text-lg text-text-main mt-1">{targetTeam.teamName}</p>
-                      <div className="mt-3 space-y-1 text-sm text-primary-purple">
-                        <p className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> {targetTeam.date}</p>
-                        <p className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5" /> {targetTeam.location}</p>
+                    <div className="bg-pastel-blue/30 p-6 md:p-8 rounded-[32px] border border-pastel-blue/50 text-left space-y-4 shadow-inner">
+                      <span className="inline-block text-[10px] font-black text-primary-purple uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-pastel-blue/30">변경 희망 (상대팀)</span>
+                      <div>
+                        <p className="font-black text-xl text-text-main">{targetTeam.teamName}</p>
+                        <div className="mt-4 space-y-2 text-sm font-bold text-primary-purple">
+                          <p className="flex items-center gap-2.5"><Calendar className="w-4 h-4" /> {targetTeam.date}</p>
+                          <p className="flex items-center gap-2.5"><MapPin className="w-4 h-4" /> {targetTeam.location}</p>
+                          <p className="flex items-center gap-2.5"><Key className="w-4 h-4" /> {targetTeam.keyword}</p>
+                        </div>
                       </div>
-                      <div className="mt-4 p-3 bg-white/50 rounded-xl border border-pastel-blue/30">
-                        <p className="text-[10px] font-bold text-primary-purple mb-1">상대 팀장 연락처</p>
+                      <div className="mt-6 p-4 bg-white/80 rounded-2xl border border-pastel-blue/30 shadow-sm">
+                        <p className="text-[10px] font-black text-primary-purple mb-2 uppercase tracking-widest">상대 팀장 연락처</p>
                         <a 
                           href={`tel:${targetTeam.phone}`}
-                          className="text-sm font-bold text-text-main hover:text-primary-purple transition-colors flex items-center gap-1.5"
+                          className="text-sm md:text-base font-black text-text-main hover:text-primary-purple transition-colors flex items-center gap-2"
                         >
-                          <Phone className="w-3.5 h-3.5" />
+                          <div className="w-8 h-8 rounded-full bg-primary-purple flex items-center justify-center text-white">
+                            <Phone className="w-4 h-4" />
+                          </div>
                           {targetTeam.leaderName} 팀장 ({targetTeam.phone})
                         </a>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-pastel-purple p-6 rounded-2xl border border-pastel-purple/50 space-y-4 shadow-inner">
-                    <div className="text-sm font-bold text-primary-purple leading-relaxed space-y-2">
-                      <p>함께 성장하는 컨설팅 문화를 위해 상대 팀의 상황을 먼저 배려해 주셔서 감사합니다.</p>
-                      <p>원활한 일정 조정을 위해 상대 팀장님과 사전에 변경 가능 논의를 거치신 후 신청해 주세요.</p>
-                      <p>두 팀 모두 만족스러운 컨설팅이 될 수 있도록 정성껏 돕겠습니다!</p>
+                  <div className="bg-pastel-purple/30 p-6 md:p-8 rounded-[32px] border border-pastel-purple/50 space-y-6 shadow-inner">
+                    <div className="text-sm md:text-base font-bold text-primary-purple leading-relaxed space-y-3">
+                      <p>함께 성장하는 컨설팅 문화를 위해 <span className="underline decoration-2 underline-offset-4">상대 팀의 상황을 먼저 배려</span>해 주셔서 감사합니다.</p>
+                      <p>원활한 일정 조정을 위해 상대 팀장님과 <span className="bg-white px-2 py-0.5 rounded border border-pastel-purple/30">사전에 변경 가능 논의</span>를 거치신 후 신청해 주세요.</p>
                     </div>
-                    <label className="flex items-center justify-center gap-3 cursor-pointer group bg-white p-4 rounded-xl border border-pastel-purple/30 shadow-sm hover:border-primary-purple transition-all">
+                    <label className="flex items-center justify-center gap-4 cursor-pointer group bg-white p-5 rounded-2xl border-2 border-pastel-purple/50 shadow-sm hover:border-primary-purple transition-all">
                       <input 
                         type="checkbox" 
                         checked={isAgreed}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setIsAgreed(e.target.checked)}
-                        className="w-5 h-5 rounded border-pastel-purple text-primary-purple focus:ring-primary-purple cursor-pointer"
+                        className="w-6 h-6 rounded-lg border-pastel-purple text-primary-purple focus:ring-primary-purple cursor-pointer transition-all"
                       />
-                      <span className="text-sm font-bold text-text-main group-hover:text-primary-purple transition-colors">
+                      <span className="text-base font-black text-text-main group-hover:text-primary-purple transition-colors">
                         상대팀과의 변경협의가 완료되었습니까?
                       </span>
                     </label>
                   </div>
 
-                  <div className="flex gap-3 pt-4">
+                  <div className="flex flex-col md:flex-row gap-4 pt-6">
                     <button 
                       onClick={() => setChangeStep('select_theirs')}
-                      className="flex-1 py-4 rounded-2xl font-bold text-text-muted bg-app-bg hover:bg-pastel-purple transition-colors"
+                      className="flex-1 py-5 rounded-2xl font-black text-text-muted bg-app-bg hover:bg-pastel-purple transition-all active:scale-95"
                     >
-                      취소
+                      이전 단계로
                     </button>
                     <button 
                       onClick={submitChangeRequest}
                       disabled={!isAgreed}
-                      className={`flex-1 py-4 rounded-2xl font-bold text-white shadow-lg transition-all ${isAgreed ? 'bg-primary-purple hover:bg-primary-purple/90 shadow-pastel-purple' : 'bg-pastel-purple text-text-muted cursor-not-allowed shadow-none'}`}
+                      className={`flex-1 py-5 rounded-2xl font-black text-white shadow-xl transition-all active:scale-95 ${isAgreed ? 'bg-primary-purple hover:bg-primary-purple/90 shadow-primary-purple/20' : 'bg-pastel-purple text-text-muted cursor-not-allowed shadow-none'}`}
                     >
-                      변경 요청 전송
+                      변경 요청 전송하기
                     </button>
                   </div>
                 </motion.div>
@@ -1443,7 +1600,7 @@ ${isApproved ? `✨ 변경 확정 정보:
 
               {/* Schedule Table - Dashboard Style */}
               <div className="bg-white rounded-2xl shadow-sm border border-pastel-purple overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-app-bg border-b border-pastel-purple text-text-muted font-bold">
@@ -1554,6 +1711,71 @@ ${isApproved ? `✨ 변경 확정 정보:
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile Card View */}
+                <div className="md:hidden divide-y divide-pastel-purple/10">
+                  {filteredData.map((item, idx) => {
+                    const isSearchedTeam = searchQuery && item.teamName.includes(searchQuery.trim());
+                    const searchedTeamObj = searchQuery ? schedules.find(s => s.teamName.includes(searchQuery.trim())) : null;
+                    const isCompatible = searchedTeamObj && Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+                                        (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
+                                        (searchedTeamObj.location === item.location) &&
+                                        searchedTeamObj.id !== item.id;
+
+                    return (
+                      <motion.div 
+                        key={item.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.02 }}
+                        onClick={() => setSelectedTeam(item)}
+                        className={`p-5 space-y-4 active:bg-app-bg transition-all ${isSearchedTeam ? 'bg-primary-purple/5 border-l-4 border-primary-purple' : isCompatible ? 'bg-pastel-green/10 border-l-4 border-green-500' : ''}`}
+                      >
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-black text-text-main text-base leading-tight">{item.teamName}</span>
+                              {isSearchedTeam && <span className="text-[9px] bg-primary-purple text-white px-2 py-0.5 rounded-full font-black shadow-sm">검색됨</span>}
+                              {isCompatible && <span className="text-[9px] bg-green-500 text-white px-2 py-0.5 rounded-full font-black shadow-sm">교환가능</span>}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold text-text-muted">
+                              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {item.date}</span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {item.location}</span>
+                            </div>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-lg font-black text-[10px] shadow-sm shrink-0 ${
+                            item.keyword.includes('회복') ? 'bg-pastel-pink text-red-600' : 
+                            item.keyword.includes('혁신') ? 'bg-pastel-orange text-orange-600' :
+                            item.keyword.includes('신뢰') ? 'bg-pastel-blue text-blue-600' :
+                            item.keyword.includes('리더') ? 'bg-pastel-purple text-primary-purple' : 'bg-pastel-green text-green-600'
+                          }`}>
+                            {item.keyword.includes('우수조직') ? `우수_${item.keyword.split('_').pop()}` : item.keyword.split('_').pop()}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] font-bold">
+                          <div className="flex items-center gap-2 text-text-muted">
+                            <div className="w-6 h-6 rounded-full bg-app-bg flex items-center justify-center">
+                              <Users className="w-3 h-3" />
+                            </div>
+                            <span>{item.count}명 참여</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-primary-purple font-black">
+                            상세보기 <ChevronRight className="w-4 h-4" />
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                  {filteredData.length === 0 && (
+                    <div className="py-20 text-center space-y-4">
+                      <div className="w-16 h-16 bg-app-bg rounded-full flex items-center justify-center mx-auto">
+                        <Search className="w-8 h-8 text-pastel-purple" />
+                      </div>
+                      <p className="text-text-muted font-bold">해당하는 일정이 없습니다.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
@@ -1622,8 +1844,8 @@ ${isApproved ? `✨ 변경 확정 정보:
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-pastel-purple"
             >
-              <div className="bg-primary-purple p-6 text-white relative">
-                <div className="absolute top-4 right-4 flex items-center gap-2">
+              <div className="bg-primary-purple p-6 md:p-8 text-white relative">
+                <div className="absolute top-6 right-6 flex items-center gap-2">
                   {isAdmin && !isEditing && (
                     <>
                       <button 
@@ -1631,14 +1853,14 @@ ${isApproved ? `✨ 변경 확정 정보:
                           setIsEditing(true);
                           setEditForm(selectedTeam);
                         }}
-                        className="px-2 py-1 rounded-lg hover:bg-white/20 transition-colors text-xs font-bold"
+                        className="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl transition-all text-xs font-black"
                         title="수정"
                       >
                         수정
                       </button>
                       <button 
                         onClick={() => setDeleteConfirmId(selectedTeam.id)}
-                        className="p-1.5 rounded-full hover:bg-white/20 transition-colors text-pastel-pink"
+                        className="p-2 rounded-xl bg-white/10 hover:bg-pastel-pink/20 transition-all text-pastel-pink"
                         title="삭제"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1651,101 +1873,103 @@ ${isApproved ? `✨ 변경 확정 정보:
                       setIsEditing(false);
                       setEditForm(null);
                     }}
-                    className="p-1.5 rounded-full hover:bg-white/20 transition-colors"
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-all"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                    <Users className="w-6 h-6" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shadow-inner">
+                    <Users className="w-7 h-7" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-                    {isEditing ? '팀 정보 수정' : '팀 상세 정보'}
-                  </span>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">
+                      {isEditing ? 'EDIT TEAM INFO' : 'TEAM DETAILS'}
+                    </span>
+                    {isEditing && editForm ? (
+                      <input 
+                        type="text"
+                        value={editForm.teamName}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, teamName: e.target.value})}
+                        className="text-xl font-black leading-tight bg-white/10 border-2 border-white/30 rounded-xl px-3 py-1.5 w-full outline-none focus:bg-white/20 focus:border-white/50 transition-all"
+                      />
+                    ) : (
+                      <h3 className="text-2xl font-black leading-tight tracking-tight">{selectedTeam.teamName}</h3>
+                    )}
+                  </div>
                 </div>
-                {isEditing && editForm ? (
-                  <input 
-                    type="text"
-                    value={editForm.teamName}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, teamName: e.target.value})}
-                    className="text-xl font-bold leading-tight bg-white/10 border border-white/30 rounded px-2 py-1 w-full outline-none focus:bg-white/20"
-                  />
-                ) : (
-                  <h3 className="text-xl font-bold leading-tight">{selectedTeam.teamName}</h3>
-                )}
               </div>
               
-              <div className="p-6 space-y-6">
+              <div className="p-6 md:p-8 space-y-8">
                 {isEditing && editForm ? (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">날짜</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">날짜</label>
                         <input 
                           type="text" 
                           value={editForm.date}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, date: e.target.value})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">장소</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">장소</label>
                         <input 
                           type="text" 
                           value={editForm.location}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, location: e.target.value})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">팀장명</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">팀장명</label>
                         <input 
                           type="text" 
                           value={editForm.leaderName}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, leaderName: e.target.value})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">연락처</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">연락처</label>
                         <input 
                           type="text" 
                           value={editForm.phone}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, phone: e.target.value})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">키워드</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">키워드</label>
                         <input 
                           type="text" 
                           value={editForm.keyword}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, keyword: e.target.value})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-text-muted uppercase">인원</label>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">인원</label>
                         <input 
                           type="number" 
                           value={editForm.count}
                           onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({...editForm, count: parseInt(e.target.value) || 0})}
-                          className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm"
+                          className="w-full p-3 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold focus:border-primary-purple outline-none transition-all"
                         />
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-text-muted uppercase">관리자 메모 (비공개)</label>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-text-muted uppercase tracking-widest ml-1">관리자 메모 (비공개)</label>
                       <textarea 
                         value={editForm.memo || ''}
                         onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditForm({...editForm, memo: e.target.value})}
                         placeholder="팀별 특이사항이나 운영 시 주의사항을 기록하세요."
-                        className="w-full p-2 bg-app-bg border border-pastel-purple rounded-lg text-sm h-20 resize-none"
+                        className="w-full p-4 bg-app-bg border-2 border-pastel-purple rounded-2xl text-sm font-bold h-24 resize-none focus:border-primary-purple outline-none transition-all"
                       />
                     </div>
                     <div className="flex gap-3 pt-4">
@@ -1758,31 +1982,34 @@ ${isApproved ? `✨ 변경 확정 정보:
                           setIsEditing(false);
                           setEditForm(null);
                         }}
-                        className="flex-1 py-3 rounded-xl font-bold text-text-muted bg-app-bg hover:bg-pastel-purple transition-colors"
+                        className="flex-1 py-4 rounded-2xl font-black text-text-muted bg-app-bg hover:bg-pastel-purple transition-all active:scale-95"
                       >
                         취소
                       </button>
                       <button 
                         onClick={handleEditSave}
-                        className="flex-1 py-3 rounded-xl font-bold text-white bg-primary-purple hover:bg-primary-purple/90 transition-colors shadow-lg shadow-pastel-purple"
+                        className="flex-1 py-4 rounded-2xl font-black text-white bg-primary-purple hover:bg-primary-purple/90 transition-all shadow-xl shadow-primary-purple/20 active:scale-95"
                       >
-                        저장
+                        저장하기
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-text-muted uppercase">팀장</p>
-                        <p className="font-bold text-text-main">{selectedTeam.leaderName}</p>
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">팀장</p>
+                        <p className="font-black text-text-main text-lg">{selectedTeam.leaderName}</p>
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-text-muted uppercase">연락처</p>
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">연락처</p>
                         <a 
                           href={`tel:${selectedTeam.phone}`}
-                          className="font-medium text-text-muted hover:text-primary-purple transition-colors"
+                          className="flex items-center gap-2 font-black text-primary-purple hover:text-primary-purple/80 transition-all text-lg"
                         >
+                          <div className="w-8 h-8 rounded-full bg-pastel-purple flex items-center justify-center">
+                            <Phone className="w-4 h-4" />
+                          </div>
                           {selectedTeam.phone}
                         </a>
                       </div>
@@ -1790,25 +2017,49 @@ ${isApproved ? `✨ 변경 확정 정보:
 
                     <div className="h-px bg-pastel-purple/30"></div>
 
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-text-muted flex items-center gap-2"><Calendar className="w-4 h-4" /> 일정</span>
-                        <span className="font-bold text-text-main">{selectedTeam.date}</span>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-app-bg rounded-2xl border border-pastel-purple/30">
+                        <span className="text-text-muted font-bold flex items-center gap-3 text-sm">
+                          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <Calendar className="w-4 h-4 text-primary-purple" />
+                          </div>
+                          일정
+                        </span>
+                        <span className="font-black text-text-main">{selectedTeam.date}</span>
                       </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-text-muted flex items-center gap-2"><MapPin className="w-4 h-4" /> 장소</span>
-                        <span className="font-bold text-text-main">{selectedTeam.location}</span>
+                      <div className="flex items-center justify-between p-4 bg-app-bg rounded-2xl border border-pastel-purple/30">
+                        <span className="text-text-muted font-bold flex items-center gap-3 text-sm">
+                          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <MapPin className="w-4 h-4 text-primary-purple" />
+                          </div>
+                          장소
+                        </span>
+                        <span className="font-black text-text-main">{selectedTeam.location}</span>
                       </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-text-muted flex items-center gap-2"><Key className="w-4 h-4" /> 키워드</span>
-                        <span className="font-bold text-primary-purple">{selectedTeam.keyword}</span>
+                      <div className="flex items-center justify-between p-4 bg-app-bg rounded-2xl border border-pastel-purple/30">
+                        <span className="text-text-muted font-bold flex items-center gap-3 text-sm">
+                          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <Key className="w-4 h-4 text-primary-purple" />
+                          </div>
+                          키워드
+                        </span>
+                        <span className="font-black text-primary-purple">{selectedTeam.keyword}</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-app-bg rounded-2xl border border-pastel-purple/30">
+                        <span className="text-text-muted font-bold flex items-center gap-3 text-sm">
+                          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+                            <Users className="w-4 h-4 text-primary-purple" />
+                          </div>
+                          인원
+                        </span>
+                        <span className="font-black text-text-main">{selectedTeam.count}명</span>
                       </div>
                     </div>
 
                     {isAdmin && selectedTeam.memo && (
-                      <div className="p-4 bg-pastel-purple/20 rounded-xl border border-pastel-purple/30 space-y-1">
-                        <p className="text-[10px] font-bold text-primary-purple uppercase tracking-wider">관리자 메모</p>
-                        <p className="text-xs text-text-main leading-relaxed">{selectedTeam.memo}</p>
+                      <div className="bg-pastel-orange/10 p-5 rounded-2xl border border-pastel-orange/30 space-y-2">
+                        <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">관리자 메모</p>
+                        <p className="text-sm font-bold text-text-main leading-relaxed">{selectedTeam.memo}</p>
                       </div>
                     )}
 
@@ -1819,7 +2070,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <Phone className="w-5 h-5" />
                       팀장에게 바로연결
                     </a>
-                  </>
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -1879,7 +2130,7 @@ ${isApproved ? `✨ 변경 확정 정보:
         </button>
         <button onClick={startChangeFlow} className={`flex flex-col items-center gap-1 ${filterType === 'change' ? 'text-primary-purple' : 'text-text-muted'}`}>
           <RefreshCw className="w-5 h-5" />
-          <span className="text-[10px] font-bold">변경</span>
+          <span className="text-[10px] font-bold">차수변경</span>
         </button>
       </nav>
     </div>

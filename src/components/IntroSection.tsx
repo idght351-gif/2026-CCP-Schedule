@@ -37,38 +37,41 @@ export const IntroSection: React.FC = () => {
   ];
 
   return (
-    <section className="mb-10">
+    <section className="mb-6 md:mb-10">
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-br from-white to-pastel-purple/10 rounded-[40px] p-8 md:p-10 border border-pastel-purple shadow-sm"
+        className="bg-gradient-to-br from-white to-pastel-purple/10 rounded-[32px] md:rounded-[40px] p-6 md:p-12 border border-pastel-purple shadow-sm text-center"
       >
-        <div className="max-w-3xl mb-10">
-          <h2 className="text-2xl md:text-3xl font-extrabold text-text-main mb-3">
-            현대제철 조직문화 혁신, <span className="text-primary-purple">그 소중한 여정</span>
+        <div className="max-w-3xl mx-auto mb-10 md:mb-14">
+          <p className="text-orange-500 font-black text-xs md:text-sm mb-2 tracking-widest uppercase">문화컨설팅</p>
+          <h2 className="text-2xl md:text-4xl font-black text-text-main mb-3 md:mb-4 tracking-tight">
+            현대제철 조직문화 혁신, <br className="md:hidden" />
+            <span className="text-primary-purple">그 소중한 여정</span>
           </h2>
-          <p className="text-text-muted font-medium leading-relaxed">
-            서로를 이해하고 함께 성장하는 시간을 통해 우리 팀만의 고유한 문화를 만들어갑니다.
+          <p className="text-xs md:text-base text-text-muted font-bold leading-relaxed max-w-2xl mx-auto">
+            서로를 이해하고 함께 성장하는 시간을 통해 <br className="hidden md:block" />
+            우리 팀만의 고유한 문화를 만들어갑니다.
           </p>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4 md:gap-6">
           {cards.map((card, index) => (
             <motion.div
               key={index}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
-              className="bg-white/60 backdrop-blur-sm p-6 md:p-8 rounded-[32px] border border-white shadow-sm hover:shadow-md transition-all group flex flex-col md:flex-row gap-6 items-start md:items-center"
+              className="bg-white/80 backdrop-blur-sm p-6 md:p-8 rounded-[32px] border border-white shadow-sm hover:shadow-md transition-all group flex flex-col md:flex-row gap-6 items-center text-center md:text-left"
             >
-              <div className={`w-16 h-16 shrink-0 ${card.bgColor} rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-inner`}>
+              <div className={`w-16 h-16 shrink-0 ${card.bgColor} rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg shadow-primary-purple/5`}>
                 {card.icon}
               </div>
-              <div className="flex-1 space-y-2">
-                <h3 className="font-extrabold text-text-main text-lg md:text-xl leading-tight">
+              <div className="flex-1 space-y-2 md:space-y-3">
+                <h3 className="font-black text-text-main text-lg md:text-xl leading-tight">
                   {card.title}
                 </h3>
-                <p className="text-sm md:text-[15px] text-text-muted leading-relaxed break-keep">
+                <p className="text-sm md:text-[15px] text-text-muted leading-relaxed font-medium break-keep">
                   {card.content}
                 </p>
               </div>

@@ -1,6 +1,15 @@
 @import url('https://hangeul.pstatic.net/hangeul_static/css/nanum-square-neo.css');
 @import "tailwindcss";
 
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
 @theme {
   --font-sans: "NanumSquareNeo", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;

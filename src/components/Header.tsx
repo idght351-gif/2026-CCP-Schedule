@@ -34,11 +34,11 @@ export const Header: React.FC<HeaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <header className="bg-white border-b border-pastel-purple sticky top-0 z-30 px-6 py-4 shadow-sm">
+    <header className="bg-white border-b border-pastel-purple sticky top-0 z-30 px-4 md:px-6 py-3 md:py-4 shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <div 
-            className="w-10 h-10 bg-primary-purple rounded-2xl flex items-center justify-center shadow-lg shadow-primary-purple/30 cursor-pointer"
+            className="w-8 h-8 md:w-10 md:h-10 bg-primary-purple rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-primary-purple/30 cursor-pointer shrink-0"
             onClick={() => {
               const count = (window as any).adminClickCount || 0;
               (window as any).adminClickCount = count + 1;
@@ -53,13 +53,15 @@ export const Header: React.FC<HeaderProps> = ({
               }
             }}
           >
-            <Calendar className={`w-6 h-6 text-white ${isAdmin ? 'animate-spin-slow' : ''}`} />
+            <Calendar className={`w-5 h-5 md:w-6 md:h-6 text-white ${isAdmin ? 'animate-spin-slow' : ''}`} />
           </div>
           <div 
             className="cursor-pointer group"
             onClick={() => { handleReset(); setActiveTab('progress'); }}
           >
-            <h1 className="text-lg font-extrabold text-text-main tracking-tight group-hover:text-primary-purple transition-colors">2026 문화컨설팅 운영 시스템</h1>
+            <h1 className="text-sm md:text-lg font-extrabold text-text-main tracking-tight group-hover:text-primary-purple transition-colors leading-tight">
+              2026 <br className="sm:hidden" /> 문화컨설팅 운영 플랫폼
+            </h1>
           </div>
         </div>
         <div className="flex items-center gap-4">

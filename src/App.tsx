@@ -96,7 +96,10 @@ export default function App() {
   const [step2Search, setStep2Search] = useState('');
   const [activeFilterMenu, setActiveFilterMenu] = useState<FilterType | null>(null);
   const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => {
+    return sessionStorage.getItem('is_admin') === 'true';
+  });
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Schedule | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
@@ -132,10 +135,10 @@ export default function App() {
       setUser(currentUser);
       setIsAuthReady(true);
       if (currentUser) {
-        // Check if admin
-        setIsAdmin(currentUser.email === "idght351@gmail.com");
+        // Check if system admin
+        setIsSystemAdmin(currentUser.email === "idght351@gmail.com");
       } else {
-        setIsAdmin(false);
+        setIsSystemAdmin(false);
       }
     });
     return () => unsubscribe();
@@ -149,7 +152,7 @@ export default function App() {
     const qSchedules = query(collection(db, 'schedules'), orderBy('id', 'asc'));
     const unsubSchedules = onSnapshot(qSchedules, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Schedule);
-      if (data.length === 0 && isAdmin) {
+      if (data.length === 0 && (isAdmin || isSystemAdmin)) {
         // Bootstrap initial data if empty and admin
         scheduleData.forEach(async (s) => {
           await setDoc(doc(db, 'schedules', s.id.toString()), s);
@@ -174,7 +177,7 @@ export default function App() {
       unsubSchedules();
       unsubRequests();
     };
-  }, [isAuthReady, isAdmin]);
+  }, [isAuthReady, isAdmin, isSystemAdmin]);
 
   const login = async () => {
     try {
@@ -262,7 +265,7 @@ export default function App() {
     let reqs = [...changeRequests];
     
     // User view: hide rejected requests as suggested
-    if (!isAdmin) {
+    if (!isAdmin && !isSystemAdmin) {
       reqs = reqs.filter(r => r.status !== 'rejected');
     }
 
@@ -271,7 +274,7 @@ export default function App() {
     }
     
     return reqs;
-  }, [changeRequests, isAdmin, requestFilter]);
+  }, [changeRequests, isAdmin, isSystemAdmin, requestFilter]);
 
   const getSmsLink = (req: { our: Schedule, target: Schedule, status: string }) => {
     const isApproved = req.status === 'approved';
@@ -820,7 +823,11 @@ ${isApproved ? `✨ 변경 확정 정보:
     <div className="min-h-screen bg-app-bg font-sans text-text-main pb-20">
       <Header 
         isAdmin={isAdmin}
-        setIsAdmin={setIsAdmin}
+        isSystemAdmin={isSystemAdmin}
+        setIsAdmin={(val) => {
+          setIsAdmin(val);
+          sessionStorage.setItem('is_admin', val ? 'true' : 'false');
+        }}
         setToast={setToast}
         handleReset={handleReset}
         setActiveTab={setActiveTab}
@@ -876,7 +883,7 @@ ${isApproved ? `✨ 변경 확정 정보:
             >
               <CheckCircle2 className="w-4 h-4" />
               요청 내역 ({changeRequests.filter(r => r.status === 'pending').length})
-              {activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
+              {(isAdmin || isSystemAdmin) && activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
             </button>
           </div>
         </section>
@@ -1067,7 +1074,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                 eventClick={(info) => {
                   setSelectedTeam(info.event.extendedProps as Schedule);
                 }}
-                editable={isAdmin}
+                editable={isAdmin || isSystemAdmin}
                 eventDrop={(info) => {
                   const newDate = info.event.start;
                   if (newDate) {
@@ -1179,11 +1186,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                 <div className="flex gap-2">
                   {(['all', 'pending', 'approved', 'rejected'] as const).map((f) => {
                     // Hide rejected tab for non-admins
-                    if (!isAdmin && f === 'rejected') return null;
+                    if (!isAdmin && !isSystemAdmin && f === 'rejected') return null;
                     
                     const labels = { all: '전체', pending: '대기중', approved: '승인됨', rejected: '반려됨' };
                     const count = f === 'all' 
-                      ? (isAdmin ? changeRequests.length : changeRequests.filter(r => r.status !== 'rejected').length)
+                      ? (isAdmin || isSystemAdmin ? changeRequests.length : changeRequests.filter(r => r.status !== 'rejected').length)
                       : changeRequests.filter(r => r.status === f).length;
 
                     return (
@@ -1225,7 +1232,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                           <span className="text-[10px] text-text-muted font-bold">{req.timestamp}</span>
                         </div>
                         
-                        {isAdmin && (
+                        {(isAdmin || isSystemAdmin) && (
                           <div className="flex gap-2">
                             {req.status === 'pending' ? (
                               <>
@@ -1563,12 +1570,15 @@ ${isApproved ? `✨ 변경 확정 정보:
                         <p className="text-[10px] font-black text-primary-purple mb-2 uppercase tracking-widest">상대 팀장 연락처</p>
                         <a 
                           href={`tel:${targetTeam.phone}`}
-                          className="text-sm md:text-base font-black text-text-main hover:text-primary-purple transition-colors flex items-center gap-2"
+                          className="flex items-center gap-3 hover:text-primary-purple transition-colors"
                         >
-                          <div className="w-8 h-8 rounded-full bg-primary-purple flex items-center justify-center text-white">
-                            <Phone className="w-4 h-4" />
+                          <div className="w-10 h-10 shrink-0 rounded-full bg-primary-purple flex items-center justify-center text-white shadow-md">
+                            <Phone className="w-5 h-5" />
                           </div>
-                          {targetTeam.leaderName} 팀장 ({targetTeam.phone})
+                          <div className="flex flex-col">
+                            <span className="text-sm font-black text-text-main">{targetTeam.leaderName} 팀장</span>
+                            <span className="text-base font-black text-primary-purple tracking-tight">{targetTeam.phone}</span>
+                          </div>
                         </a>
                       </div>
                     </div>
@@ -1623,7 +1633,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-text-muted uppercase">{req.timestamp}</span>
                         <div className="flex items-center gap-2">
-                          {isAdmin && req.status === 'pending' && (
+                        {(isAdmin || isSystemAdmin) && req.status === 'pending' && (
                             <>
                               <button 
                                 onClick={() => rejectRequest(req.id)}
@@ -1954,7 +1964,7 @@ ${isApproved ? `✨ 변경 확정 정보:
             >
               <div className="bg-primary-purple p-6 md:p-8 text-white relative">
                 <div className="absolute top-6 right-6 flex items-center gap-2">
-                  {isAdmin && !isEditing && (
+                  {(isAdmin || isSystemAdmin) && !isEditing && (
                     <>
                       <button 
                         onClick={() => {
@@ -2104,21 +2114,21 @@ ${isApproved ? `✨ 변경 확정 정보:
                   </div>
                 ) : (
                   <div className="space-y-8">
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-1.5">
+                    <div className="flex flex-col md:flex-row gap-6 md:items-center">
+                      <div className="space-y-1.5 flex-1">
                         <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">팀장</p>
-                        <p className="font-black text-text-main text-lg">{selectedTeam.leaderName}</p>
+                        <p className="font-black text-text-main text-xl">{selectedTeam.leaderName}</p>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 flex-1">
                         <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">연락처</p>
                         <a 
                           href={`tel:${selectedTeam.phone}`}
-                          className="flex items-center gap-2 font-black text-primary-purple hover:text-primary-purple/80 transition-all text-lg"
+                          className="flex items-center gap-3 font-black text-primary-purple hover:text-primary-purple/80 transition-all text-xl"
                         >
-                          <div className="w-8 h-8 rounded-full bg-pastel-purple flex items-center justify-center">
-                            <Phone className="w-4 h-4" />
+                          <div className="w-10 h-10 rounded-full bg-pastel-purple flex items-center justify-center shadow-sm">
+                            <Phone className="w-5 h-5" />
                           </div>
-                          {selectedTeam.phone}
+                          <span className="tracking-tight">{selectedTeam.phone}</span>
                         </a>
                       </div>
                     </div>
@@ -2164,7 +2174,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                       </div>
                     </div>
 
-                    {isAdmin && selectedTeam.memo && (
+                    {(isAdmin || isSystemAdmin) && selectedTeam.memo && (
                       <div className="bg-pastel-orange/10 p-5 rounded-2xl border border-pastel-orange/30 space-y-2">
                         <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">관리자 메모</p>
                         <p className="text-sm font-bold text-text-main leading-relaxed">{selectedTeam.memo}</p>

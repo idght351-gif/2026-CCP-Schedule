@@ -4,6 +4,7 @@ import { User } from 'firebase/auth';
 
 interface HeaderProps {
   isAdmin: boolean;
+  isSystemAdmin: boolean;
   setIsAdmin: (isAdmin: boolean) => void;
   setToast: (toast: { message: string; type: 'success' | 'error' } | null) => void;
   handleReset: () => void;
@@ -19,6 +20,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   isAdmin,
+  isSystemAdmin,
   setIsAdmin,
   setToast,
   handleReset,
@@ -53,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
               }
             }}
           >
-            <Calendar className={`w-5 h-5 md:w-6 md:h-6 text-white ${isAdmin ? 'animate-spin-slow' : ''}`} />
+            <Calendar className={`w-5 h-5 md:w-6 md:h-6 text-white ${(isAdmin || isSystemAdmin) ? 'animate-spin-slow' : ''}`} />
           </div>
           <div 
             className="cursor-pointer group"
@@ -61,11 +63,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <h1 className="text-sm md:text-lg font-extrabold text-text-main tracking-tight group-hover:text-primary-purple transition-colors leading-tight">
               2026 <br className="sm:hidden" /> 문화컨설팅 운영 플랫폼
+              {(isAdmin || isSystemAdmin) && (
+                <span className="block text-[10px] text-primary-purple font-black mt-0.5">
+                  {isSystemAdmin ? 'SYSTEM ADMIN' : 'ADMIN MODE'}
+                </span>
+              )}
             </h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          {isAdmin && (
+          {(isAdmin || isSystemAdmin) && (
             <div className="hidden md:flex items-center gap-2 mr-2 border-r border-pastel-purple pr-4">
               <button 
                 onClick={addNewTeam}
@@ -106,14 +113,14 @@ export const Header: React.FC<HeaderProps> = ({
             {user ? (
               <>
                 <div className="text-right hidden sm:block">
-                  <p className="text-xs font-bold text-text-main">{user.displayName || '사용자'}</p>
+                  <p className="text-xs font-bold text-text-main">{user.displayName || '시스템권한자'}</p>
                   <p className="text-[10px] text-text-muted">{user.email}</p>
                 </div>
                 {user.photoURL ? (
                   <img src={user.photoURL} alt="profile" className="w-8 h-8 rounded-full border border-pastel-purple shadow-sm" referrerPolicy="no-referrer" />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-pastel-purple flex items-center justify-center text-primary-purple font-bold text-xs">
-                    {user.displayName?.[0] || 'U'}
+                    {user.displayName?.[0] || 'S'}
                   </div>
                 )}
                 <button 
@@ -130,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="px-4 py-2 bg-white border border-pastel-purple text-primary-purple rounded-xl text-xs font-bold hover:bg-pastel-purple transition-all flex items-center gap-2"
               >
                 <LogIn className="w-4 h-4" />
-                관리자 로그인
+                시스템권한자 로그인
               </button>
             )}
           </div>

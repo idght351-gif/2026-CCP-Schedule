@@ -181,14 +181,14 @@ export default function App() {
 
   const login = async () => {
     try {
-      if (isMobile) {
-        await signInWithRedirect(auth, googleProvider);
-      } else {
-        await signInWithPopup(auth, googleProvider);
-      }
-    } catch (error) {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
       console.error("Login error:", error);
-      setToast({ message: '로그인에 실패했습니다.', type: 'error' });
+      if (error.code === 'auth/popup-blocked') {
+        setToast({ message: '팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.', type: 'error' });
+      } else {
+        setToast({ message: '로그인에 실패했습니다. 다시 시도해주세요.', type: 'error' });
+      }
     }
   };
 
@@ -279,6 +279,7 @@ export default function App() {
   const getSmsLink = (req: { our: Schedule, target: Schedule, status: string }) => {
     const isApproved = req.status === 'approved';
     const statusText = isApproved ? '승인' : '반려';
+    const platformUrl = "https://2026-ccp-schedule-aot9.vercel.app/";
     
     const message = `[2026 문화컨설팅 일정변경 안내]
 
@@ -300,11 +301,14 @@ ${isApproved ? `✨ 변경 확정 정보:
 마음 써주신 두 분 팀장님께 진심으로 감사드립니다.
 
 상세 내용은 플랫폼에서 확인하실 수 있습니다.
+🔗 ${platformUrl}
+
 오늘도 기분 좋은 하루 보내세요!`;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const separator = isIOS ? ',' : ','; // Try comma for both as it's more common now
-    const phones = `${req.our.phone}${separator}${req.target.phone}`;
+    // iOS uses semicolon for multiple recipients in some versions, but comma is standard for modern ones.
+    // However, for multiple recipients in a single string, comma is the most reliable across platforms.
+    const phones = `${req.our.phone},${req.target.phone}`;
     const bodyPrefix = isIOS ? '&' : '?';
     
     return `sms:${phones}${bodyPrefix}body=${encodeURIComponent(message)}`;
@@ -517,8 +521,17 @@ ${isApproved ? `✨ 변경 확정 정보:
       const ourRef = doc(db, 'schedules', request.our.id.toString());
       const targetRef = doc(db, 'schedules', request.target.id.toString());
       
-      await updateDoc(ourRef, { date: request.target.date, location: request.target.location });
-      await updateDoc(targetRef, { date: request.our.date, location: request.our.location });
+      // We swap the metadata (date, location, keyword) between the two team IDs
+      await updateDoc(ourRef, { 
+        date: request.target.date, 
+        location: request.target.location,
+        keyword: request.target.keyword
+      });
+      await updateDoc(targetRef, { 
+        date: request.our.date, 
+        location: request.our.location,
+        keyword: request.our.keyword
+      });
       
       // 2. Update request status in Firestore
       await updateDoc(doc(db, 'changeRequests', requestId.toString()), { status: 'approved' });

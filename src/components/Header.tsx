@@ -47,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
               if (count + 1 >= 5) {
                 const nextAdmin = !isAdmin;
                 setIsAdmin(nextAdmin);
+                localStorage.setItem('is_admin', nextAdmin ? 'true' : 'false');
                 (window as any).adminClickCount = 0;
                 setToast({ 
                   message: nextAdmin ? "관리자 모드가 활성화되었습니다." : "사용자 모드로 전환되었습니다.", 

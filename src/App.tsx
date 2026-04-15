@@ -23,7 +23,11 @@ import {
   ArrowUp,
   ArrowDown,
   LogOut,
-  LogIn
+  LogIn,
+  Sparkles,
+  MessageCircle,
+  TrendingUp,
+  ArrowRight
 } from 'lucide-react';
 import { scheduleData, Schedule } from './data';
 import { 
@@ -42,6 +46,7 @@ import {
   onSnapshot, 
   query, 
   orderBy,
+  getDocs,
   handleFirestoreError,
   OperationType,
   User
@@ -54,7 +59,51 @@ import { SummaryCards } from './components/SummaryCards';
 import { IntroSection } from './components/IntroSection';
 
 type FilterType = 'all' | 'month' | 'location' | 'keyword' | 'change';
-type TabType = 'progress' | 'change' | 'calendar' | 'requests';
+type TabType = 'progress' | 'change' | 'calendar' | 'requests' | 'managers';
+
+const KEYWORD_MANAGERS = [
+  { keywords: ['리더십', '팔로워십'], name: '오승수 책임', phone: '010-2445-2055' },
+  { keywords: ['혁신행동', '회복탄력성'], name: '김대연 책임', phone: '010-2049-5877' },
+  { keywords: ['우수조직', '협업'], name: '심상수 책임', phone: '010-3381-2507' },
+  { keywords: ['팀 신뢰', '팀 자부심'], name: '임재혁 매니저', phone: '010-4768-3451' }
+];
+
+const getManagerForKeyword = (keyword: string) => {
+  if (keyword.startsWith('우수_')) {
+    return KEYWORD_MANAGERS.find(m => m.keywords.includes('우수조직'));
+  }
+  return KEYWORD_MANAGERS.find(m => m.keywords.some(k => keyword.includes(k)));
+};
+
+const LOCATION_MAP: Record<string, string> = {
+  '연수원1층': '현대제철연수원',
+  '연수원 1층': '현대제철연수원',
+  '연수원5층': '현대제철연수원',
+  '연수원 5층': '현대제철연수원',
+  '스틸스퀘어': '현대제철 판교오피스',
+  '인천상공회의소': '인천상공회의소',
+  '에코촌유스호스텔': '순천만에코촌유스호스텔',
+  '지식산업센터': '포항시지식산업센터',
+  '콩테이너': '콩테이너'
+};
+
+const getMapSearchTerm = (location: string) => {
+  return LOCATION_MAP[location] || location;
+};
+
+const getManagerContactSms = (team: Schedule) => {
+  const manager = getManagerForKeyword(team.keyword);
+  if (!manager) return '';
+  
+  const message = `[문화컨설팅 일정문의]
+안녕하세요, ${team.teamName} ${team.leaderName} 팀장입니다.
+이번 문화컨설팅 참여 차수 변경을 검토했으나, 현재 가능한 일정이 없어 문의드립니다.
+혹시 추가적인 일정 조정이나 별도의 대안이 있을지 확인 부탁드립니다. 감사합니다.`;
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const separator = isIOS ? '&' : '?';
+  return `sms:${manager.phone.replace(/ /g, '')}${separator}body=${encodeURIComponent(message)}`;
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -64,6 +113,7 @@ export default function App() {
   });
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
+  const [showIntro, setShowIntro] = useState(false);
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +121,9 @@ export default function App() {
       setIsUnlocked(true);
       sessionStorage.setItem('app_unlocked', 'true');
       setPasswordError(false);
+      if (isMobile) {
+        setShowIntro(true);
+      }
     } else {
       setPasswordError(true);
       setPasswordInput('');
@@ -97,7 +150,7 @@ export default function App() {
   const [activeFilterMenu, setActiveFilterMenu] = useState<FilterType | null>(null);
   const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isAdmin, setIsAdmin] = useState(() => {
-    return sessionStorage.getItem('is_admin') === 'true';
+    return localStorage.getItem('is_admin') === 'true';
   });
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -107,6 +160,21 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const calendarRef = useRef<FullCalendar>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const hasCompatibleTeams = useMemo(() => {
+    if (!searchQuery) return true;
+    const searchedTeam = schedules.find(s => s.teamName.includes(searchQuery.trim()));
+    if (!searchedTeam) return true;
+    
+    return schedules.some(item => {
+      const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
+      return !isPending && item.id !== searchedTeam.id &&
+             Math.abs(searchedTeam.count - item.count) <= 3 && 
+             (searchedTeam.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
+             (searchedTeam.location === item.location) &&
+             (searchedTeam.date !== item.date);
+    });
+  }, [searchQuery, schedules, changeRequests]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -216,13 +284,19 @@ export default function App() {
     const stats: Record<string, { total: number, upcoming: number }> = {};
     
     schedules.forEach(s => {
-      const kw = s.keyword.split('_').pop() || s.keyword;
+      let kw = s.keyword.split('_').pop() || s.keyword;
+      if (s.keyword.startsWith('우수_') || s.keyword.includes('우수조직') || s.keyword.includes('우수팀')) {
+        kw = '우수조직';
+      }
       if (!stats[kw]) stats[kw] = { total: 0, upcoming: 0 };
       stats[kw].total++;
     });
 
     upcomingSchedules.forEach(s => {
-      const kw = s.keyword.split('_').pop() || s.keyword;
+      let kw = s.keyword.split('_').pop() || s.keyword;
+      if (s.keyword.startsWith('우수_') || s.keyword.includes('우수조직') || s.keyword.includes('우수팀')) {
+        kw = '우수조직';
+      }
       if (stats[kw]) {
         stats[kw].upcoming++;
       }
@@ -308,8 +382,9 @@ ${isApproved ? `✨ 변경 확정 정보:
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     // iOS requires semicolon (;) as a separator for multiple recipients in SMS links
     // Android and others typically use comma (,)
-    const separator = isIOS ? ';' : ',';
-    const phones = `${req.our.phone}${separator}${req.target.phone}`;
+    const separator = isIOS ? ';' : ','; 
+    const cleanPhone = (p: string) => p.replace(/[^0-9]/g, '');
+    const phones = `${cleanPhone(req.our.phone)}${separator}${cleanPhone(req.target.phone)}`;
     const bodyPrefix = isIOS ? '&' : '?';
     
     return `sms:${phones}${bodyPrefix}body=${encodeURIComponent(message)}`;
@@ -367,10 +442,11 @@ ${isApproved ? `✨ 변경 확정 정보:
           if (!searchedTeamObj) return false;
           const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
           if (isPending) return false;
-          return Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+          return Math.abs(searchedTeamObj.count - item.count) <= 3 && 
                  (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
                  (searchedTeamObj.location === item.location) &&
-                 searchedTeamObj.id !== item.id;
+                 searchedTeamObj.id !== item.id &&
+                 searchedTeamObj.date !== item.date;
         };
 
         const compatibleTeams = schedules.filter(isCompatible);
@@ -396,8 +472,8 @@ ${isApproved ? `✨ 변경 확정 정보:
       } else if (filterType === 'location') {
         data = schedules.filter(item => item.location.includes(filterValue));
       } else if (filterType === 'keyword') {
-        if (filterValue === '우수팀') {
-          data = schedules.filter(item => item.keyword.includes('우수팀'));
+        if (filterValue === '우수조직' || filterValue === '우수팀') {
+          data = schedules.filter(item => item.keyword.startsWith('우수_') || item.keyword.includes('우수조직') || item.keyword.includes('우수팀'));
         } else {
           data = schedules.filter(item => item.keyword.includes(filterValue));
         }
@@ -428,7 +504,7 @@ ${isApproved ? `✨ 변경 확정 정보:
   const locations = useMemo(() => Array.from(new Set(schedules.map(item => item.location.trim()))), [schedules]);
   const keywords = useMemo(() => {
     const raw = Array.from(new Set(schedules.map(item => {
-      if (item.keyword.includes('우수팀')) return '우수팀';
+      if (item.keyword.startsWith('우수_') || item.keyword.includes('우수조직') || item.keyword.includes('우수팀')) return '우수조직';
       return item.keyword.split('_').pop() || item.keyword;
     })));
     return raw.sort();
@@ -447,6 +523,9 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const getKeywordStyle = (keyword: string) => {
+    if (keyword.startsWith('우수_')) {
+      return 'bg-pastel-green text-green-700 border-green-200 shadow-sm';
+    }
     const base = keyword.split('_').pop() || keyword;
     const colors: Record<string, string> = {
       '회복탄력성': 'bg-pastel-pink text-primary-purple border-pastel-pink/50',
@@ -455,6 +534,7 @@ ${isApproved ? `✨ 변경 확정 정보:
       '리더십': 'bg-pastel-purple text-primary-purple border-pastel-purple/50',
       '자부심': 'bg-pastel-green text-primary-purple border-pastel-green/50',
       '팔로워십': 'bg-pastel-pink/50 text-primary-purple border-pastel-pink/30',
+      '우수조직': 'bg-pastel-green text-green-700 border-green-200 shadow-sm',
     };
     return colors[base] || 'bg-app-bg text-text-main border-pastel-purple';
   };
@@ -644,19 +724,38 @@ ${isApproved ? `✨ 변경 확정 정보:
     const locationMatch = ourTeam.location === team.location;
     
     const reasons = [];
-    if (countDiff > 2) reasons.push(`인원 차이(${countDiff}명)`);
+    if (countDiff > 3) reasons.push(`인원 차이(${countDiff}명)`);
     if (ourKey !== targetKey) reasons.push(`키워드 상이(${targetKey})`);
     if (!locationMatch) reasons.push(`장소 상이(${team.location})`);
+    if (ourTeam.date === team.date) reasons.push(`동일 날짜`);
     
     return reasons.join(', ');
   };
 
-  const handleClearAll = () => {
-    setSchedules([]);
-    localStorage.removeItem('schedules');
-    setShowClearConfirm(false);
-    handleReset();
-    setToast({ message: '모든 데이터가 삭제되었습니다.', type: 'success' });
+  const handleClearAll = async () => {
+    if (!isAdmin && !isSystemAdmin) return;
+    
+    try {
+      setToast({ message: '데이터를 삭제 중입니다...', type: 'success' });
+      // 1. Clear Firestore schedules
+      const snapshot = await getDocs(collection(db, 'schedules'));
+      if (snapshot.empty) {
+        setToast({ message: '삭제할 데이터가 없습니다.', type: 'success' });
+        setShowClearConfirm(false);
+        return;
+      }
+
+      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'schedules', d.id)));
+      await Promise.all(deletePromises);
+      
+      // 2. Clear local state
+      setSchedules([]);
+      setShowClearConfirm(false);
+      handleReset();
+      setToast({ message: '모든 데이터가 파이어베이스에서 삭제되었습니다.', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'schedules');
+    }
   };
 
   const downloadExcel = () => {
@@ -695,67 +794,86 @@ ${isApproved ? `✨ 변경 확정 정보:
     setToast({ message: '최종 일정 엑셀 다운로드가 완료되었습니다.', type: 'success' });
   };
 
+  const parseAndUploadCSV = async (text: string) => {
+    try {
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (lines.length === 0) return;
+
+      const firstLine = lines[0].toLowerCase();
+      const hasHeader = firstLine.includes('날짜') || firstLine.includes('date') || firstLine.includes('팀명') || firstLine.includes('일정') || firstLine.includes('id');
+      const startIdx = hasHeader ? 1 : 0;
+      
+      const newSchedules: Schedule[] = lines.slice(startIdx).map((line, index) => {
+        const parts: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if ((char === ',' || char === '\t') && !inQuotes) {
+            parts.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        parts.push(current.trim());
+        
+        const firstPart = parts[0]?.replace(/^"|"$/g, '') || '';
+        const isFirstPartId = !isNaN(Number(firstPart)) && firstPart.length > 0 && firstPart.length < 10;
+        
+        const offset = isFirstPartId ? 1 : 0;
+        const id = isFirstPartId ? Number(firstPart) : (Date.now() + index);
+
+        return {
+          id: id,
+          date: parts[0 + offset]?.replace(/^"|"$/g, '') || '',
+          keyword: parts[1 + offset]?.replace(/^"|"$/g, '') || '',
+          teamName: parts[2 + offset]?.replace(/^"|"$/g, '') || '',
+          leaderName: parts[3 + offset]?.replace(/^"|"$/g, '') || '',
+          phone: parts[4 + offset]?.replace(/^"|"$/g, '') || '',
+          count: parseInt(parts[5 + offset]?.replace(/[^0-9]/g, '')) || 0,
+          location: parts[6 + offset]?.replace(/^"|"$/g, '') || '',
+          memo: parts[7 + offset]?.replace(/^"|"$/g, '') || '',
+          instructor1: '',
+          instructor2: ''
+        };
+      });
+
+      if (newSchedules.length > 0) {
+        setToast({ message: '데이터를 업로드 중입니다...', type: 'success' });
+        const uploadPromises = newSchedules.map(s => setDoc(doc(db, 'schedules', s.id.toString()), s));
+        await Promise.all(uploadPromises);
+        setToast({ message: `${newSchedules.length}건의 데이터가 업로드되었습니다.`, type: 'success' });
+        handleReset();
+      }
+    } catch (error) {
+      console.error('Parsing error:', error);
+      setToast({ message: '데이터 해석 중 오류가 발생했습니다.', type: 'error' });
+    }
+  };
+
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const buffer = e.target?.result as ArrayBuffer;
+      let text = '';
+      
       try {
-        const buffer = e.target?.result as ArrayBuffer;
-        let text = '';
-        
-        // Try UTF-8 first
-        try {
-          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-          text = utf8Decoder.decode(buffer);
-        } catch (e) {
-          // Fallback to EUC-KR (Common for Korean Excel CSVs)
-          const eucDecoder = new TextDecoder('euc-kr');
-          text = eucDecoder.decode(buffer);
-        }
-
-        // Split by lines and filter out empty ones
-        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-        
-        if (lines.length === 0) return;
-
-        // Check if first line is header
-        const firstLine = lines[0].toLowerCase();
-        const startIdx = (firstLine.includes('날짜') || firstLine.includes('date') || firstLine.includes('팀명') || firstLine.includes('일정')) ? 1 : 0;
-        
-        const newSchedules: Schedule[] = lines.slice(startIdx).map((line, index) => {
-          // Handle both Tab and Comma separators
-          const parts = line.includes('\t') ? line.split('\t') : line.split(',');
-          
-          // Expected format based on prompt and Excel screenshot:
-          // A:일정(date), B:키워드(keyword), C:팀명(teamName), D:팀장이름(leaderName), E:팀장전화번호(phone), F:인원수(count), G:일정(dup?), H:강사(inst1), I:보조(inst2), J:장소(location)
-          return {
-            id: Date.now() + index,
-            date: parts[0]?.trim() || '',
-            keyword: parts[1]?.trim() || '',
-            teamName: parts[2]?.trim() || '',
-            leaderName: parts[3]?.trim() || '',
-            phone: parts[4]?.trim() || '',
-            count: parseInt(parts[5]?.trim().replace(/[^0-9]/g, '')) || 0,
-            instructor1: parts[7]?.trim() || '',
-            instructor2: parts[8]?.trim() || '',
-            location: parts[9]?.trim() || ''
-          };
-        });
-
-        if (newSchedules.length > 0) {
-          // Save to Firestore
-          newSchedules.forEach(async (s) => {
-            await setDoc(doc(db, 'schedules', s.id.toString()), s);
-          });
-          handleReset();
-        }
-      } catch (error) {
-        console.error('File parsing error:', error);
-      } finally {
-        if (event.target) event.target.value = '';
+        const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+        text = utf8Decoder.decode(buffer);
+      } catch (err) {
+        const eucDecoder = new TextDecoder('euc-kr');
+        text = eucDecoder.decode(buffer);
       }
+      
+      await parseAndUploadCSV(text);
+      if (event.target) event.target.value = '';
     };
     reader.readAsArrayBuffer(file);
   };
@@ -842,6 +960,76 @@ ${isApproved ? `✨ 변경 확정 정보:
     );
   }
 
+  if (showIntro) {
+    return (
+      <div className="min-h-screen bg-app-bg flex flex-col items-center p-6 md:p-12 overflow-y-auto">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-2xl w-full space-y-12 py-10"
+        >
+          <div className="text-center space-y-4">
+            <h1 className="text-primary-purple font-black text-2xl md:text-3xl tracking-tight">문화컨설팅</h1>
+            <h2 className="text-3xl md:text-5xl font-black text-text-main leading-tight">
+              현대제철 조직문화 혁신, <br/>
+              <span className="text-primary-purple">그 소중한 여정</span>
+            </h2>
+            <p className="text-text-muted font-bold text-sm md:text-lg leading-relaxed">
+              서로를 이해하고 함께 성장하는 시간을 통해 <br/>
+              우리 팀만의 고유한 문화를 만들어갑니다.
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-white p-8 rounded-[32px] border border-pastel-purple shadow-sm flex gap-6 items-start">
+              <div className="w-12 h-12 bg-pastel-purple rounded-2xl flex items-center justify-center shrink-0">
+                <Sparkles className="w-6 h-6 text-primary-purple" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-black text-lg text-text-main">[소개] 우리 팀의 건강한 성장을 돕는 '문화컨설팅'</h3>
+                <p className="text-sm text-text-muted leading-relaxed font-medium">
+                  문화컨설팅은 팀 스스로 조직문화를 진단하고 개선점을 찾아가는 <span className="text-primary-purple font-bold">현대제철만의 팀 빌딩 여정</span>입니다. 2024년부터 시작되어 매년 100여 개의 팀이 참여해 온 이 여정은, 올해 <span className="text-primary-purple font-bold">첫 번째 사이클의 소중한 마침표</span>를 찍게 됩니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[32px] border border-pastel-purple shadow-sm flex gap-6 items-start">
+              <div className="w-12 h-12 bg-pastel-blue rounded-2xl flex items-center justify-center shrink-0">
+                <MessageCircle className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-black text-lg text-text-main">[활동] 보고서 확인부터 팀빌딩까지, 소통의 시간</h3>
+                <p className="text-sm text-text-muted leading-relaxed font-medium">
+                  <span className="text-blue-600 font-bold underline underline-offset-4">팀별 진단 보고서</span>를 통해 우리 팀의 현주소를 객관적으로 파악하고, 도출된 보완 키워드를 주제로 심도 있게 논의합니다. 이어지는 <span className="text-blue-600 font-bold">맞춤형 팀빌딩 활동</span>은 키워드 개선은 물론, 팀원 간의 결속력을 높이는 <span className="text-blue-600 font-bold">활기찬 에너지</span>를 채워줄 것입니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[32px] border border-pastel-purple shadow-sm flex gap-6 items-start">
+              <div className="w-12 h-12 bg-pastel-green rounded-2xl flex items-center justify-center shrink-0">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-black text-lg text-text-main">[변화] 더 단단해진 팀워크, 더 깊어질 내일</h3>
+                <p className="text-sm text-text-muted leading-relaxed font-medium">
+                  이번 과정을 통해 우리 팀은 서로를 더 깊이 이해하고 <span className="text-green-600 font-bold">한 단계 더 성장</span>하게 됩니다. 올해 다진 탄탄한 기초를 바탕으로, 내년부터는 더욱 정교하고 고도화된 <span className="text-green-600 font-bold">상세 심화 프로그램</span>이 도입되어 여러분의 <span className="text-green-600 font-bold">조직문화 혁신을 전폭적으로 지원</span>할 예정입니다.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => setShowIntro(false)}
+            className="w-full py-5 bg-primary-purple hover:bg-primary-purple/90 text-white rounded-[24px] font-black text-lg shadow-xl shadow-primary-purple/20 transition-all active:scale-95 flex items-center justify-center gap-3"
+          >
+            팀별 일정 확인 및 차수 변경하기
+            <ArrowRight className="w-6 h-6" />
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-app-bg font-sans text-text-main pb-20">
       <Header 
@@ -849,7 +1037,7 @@ ${isApproved ? `✨ 변경 확정 정보:
         isSystemAdmin={isSystemAdmin}
         setIsAdmin={(val) => {
           setIsAdmin(val);
-          sessionStorage.setItem('is_admin', val ? 'true' : 'false');
+          localStorage.setItem('is_admin', val ? 'true' : 'false');
         }}
         setToast={setToast}
         handleReset={handleReset}
@@ -864,7 +1052,7 @@ ${isApproved ? `✨ 변경 확정 정보:
       />
 
       <main className="max-w-6xl mx-auto p-4 space-y-6 mt-4">
-        <IntroSection />
+        {!isMobile && <IntroSection />}
         <SummaryCards 
           schedules={schedules}
           upcomingSchedules={upcomingSchedules}
@@ -907,6 +1095,14 @@ ${isApproved ? `✨ 변경 확정 정보:
               <CheckCircle2 className="w-4 h-4" />
               요청 내역 ({changeRequests.filter(r => r.status === 'pending').length})
               {(isAdmin || isSystemAdmin) && activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
+            </button>
+            <button 
+              onClick={() => { setActiveTab('managers'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'managers' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+            >
+              <Users className="w-4 h-4" />
+              담당자 안내
+              {activeTab === 'managers' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
             </button>
           </div>
         </section>
@@ -1085,7 +1281,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                         <span className="text-[8px] bg-white/40 px-1 rounded">{s.count}명</span>
                       </div>
                       <div className="text-[7px] md:text-[8px] mt-0.5 font-medium truncate opacity-70">
-                        #{s.keyword.includes('우수조직') ? `우수_${s.keyword.split('_').pop()}` : s.keyword.split('_').pop()}
+                        #{(s.keyword.startsWith('우수_') || s.keyword.includes('우수조직')) ? `우수_${s.keyword.split('_').pop()}` : s.keyword.split('_').pop()}
                       </div>
                     </div>
                   );
@@ -1202,6 +1398,48 @@ ${isApproved ? `✨ 변경 확정 정보:
                   margin-bottom: 2px !important;
                 }
               `}</style>
+            </div>
+          ) : activeTab === 'managers' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {KEYWORD_MANAGERS.map((m, idx) => (
+                <motion.div 
+                  key={idx}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="bg-white p-6 rounded-[32px] border border-pastel-purple shadow-sm hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap gap-1.5">
+                        {m.keywords.map(k => (
+                          <span key={k} className="px-3 py-1 bg-primary-purple text-white text-xs font-black rounded-xl uppercase tracking-wider shadow-sm">
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                      <h4 className="text-xl font-black text-text-main">{m.name}</h4>
+                    </div>
+                    <div className="w-12 h-12 bg-app-bg rounded-2xl flex items-center justify-center group-hover:bg-primary-purple transition-colors">
+                      <Phone className="w-6 h-6 text-primary-purple group-hover:text-white transition-colors" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-4 border-t border-pastel-purple/30">
+                    <a 
+                      href={`tel:${m.phone.replace(/ /g, '')}`} 
+                      className="text-sm font-bold text-text-muted hover:text-primary-purple transition-colors flex items-center gap-2"
+                    >
+                      {m.phone}
+                    </a>
+                    <a 
+                      href={`sms:${m.phone.replace(/ /g, '')}`}
+                      className="px-4 py-2 bg-pastel-purple text-primary-purple text-xs font-black rounded-xl hover:bg-primary-purple hover:text-white transition-all"
+                    >
+                      문자 문의
+                    </a>
+                  </div>
+                </motion.div>
+              ))}
             </div>
           ) : activeTab === 'requests' ? (
             <div className="space-y-6">
@@ -1477,7 +1715,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                     <div className="p-6 md:p-8 bg-app-bg border-b border-pastel-purple space-y-4">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <h3 className="font-black text-text-main text-lg">교환 가능한 상대 팀 리스트</h3>
-                        <p className="text-[11px] font-bold text-primary-purple bg-pastel-purple px-3 py-1 rounded-full">조건: 인원 ±2명 & 동일 키워드 & 동일 장소</p>
+                        <p className="text-[11px] font-bold text-primary-purple bg-pastel-purple px-3 py-1 rounded-full">조건: 인원 ±3명 & 동일 키워드 & 동일 장소 & 다른 날짜</p>
                       </div>
                       <div className="relative group">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted group-focus-within:text-primary-purple transition-colors" />
@@ -1494,21 +1732,24 @@ ${isApproved ? `✨ 변경 확정 정보:
                       {schedules
                         .filter(item => item.id !== ourTeam.id && item.teamName.includes(step2Search))
                         .sort((a, b) => {
-                          const aComp = Math.abs(ourTeam.count - a.count) <= 2 && 
+                          const aComp = Math.abs(ourTeam.count - a.count) <= 3 && 
                                        (ourTeam.keyword.split('_').pop() === a.keyword.split('_').pop()) &&
-                                       (ourTeam.location === a.location);
-                          const bComp = Math.abs(ourTeam.count - b.count) <= 2 && 
+                                       (ourTeam.location === a.location) &&
+                                       (ourTeam.date !== a.date);
+                          const bComp = Math.abs(ourTeam.count - b.count) <= 3 && 
                                        (ourTeam.keyword.split('_').pop() === b.keyword.split('_').pop()) &&
-                                       (ourTeam.location === b.location);
+                                       (ourTeam.location === b.location) &&
+                                       (ourTeam.date !== b.date);
                           if (aComp && !bComp) return -1;
                           if (!aComp && bComp) return 1;
                           return 0;
                         })
                         .map(item => {
                           const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
-                          const isCompatible = !isPending && Math.abs(ourTeam.count - item.count) <= 2 && 
+                          const isCompatible = !isPending && Math.abs(ourTeam.count - item.count) <= 3 && 
                                               (ourTeam.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
-                                              (ourTeam.location === item.location);
+                                              (ourTeam.location === item.location) &&
+                                              (ourTeam.date !== item.date);
                           const reason = isPending ? "이미 차수 변경 요청이 진행 중인 팀입니다." : getCompatibilityReason(item);
 
                           return (
@@ -1776,6 +2017,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                             {sortConfig.key === 'count' && (sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
                           </div>
                         </th>
+                        <th className="px-4 py-3">운영담당자</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-pastel-purple/10">
@@ -1786,9 +2028,10 @@ ${isApproved ? `✨ 변경 확정 정보:
                         const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
                         
                         const isCompatibleWithSearched = !isPending && searchedTeamObj && item.id !== searchedTeamObj.id &&
-                                                        Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+                                                        Math.abs(searchedTeamObj.count - item.count) <= 3 && 
                                                         (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
-                                                        (searchedTeamObj.location === item.location);
+                                                        (searchedTeamObj.location === item.location) &&
+                                                        (searchedTeamObj.date !== item.date);
 
                         return (
                   <tr 
@@ -1816,14 +2059,51 @@ ${isApproved ? `✨ 변경 확정 정보:
                           차수변경가능
                         </button>
                       )}
+                      {isSearchedTeam && (
+                        <a 
+                          href={getManagerContactSms(item)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 px-2 py-0.5 bg-pastel-pink text-primary-purple text-[9px] rounded-full hover:bg-red-100 transition-colors shadow-sm"
+                        >
+                          <Phone className="w-2.5 h-2.5" />
+                          담당자문의
+                        </a>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded text-[10px] font-bold border ${isSearchedTeam ? 'bg-white/20 text-white border-white/30' : getKeywordStyle(item.keyword)}`}>
                         {item.keyword}
                       </span>
                     </td>
-                    <td className="px-4 py-3 opacity-80">{item.location}</td>
+                    <td className="px-4 py-3 opacity-80">
+                      <a 
+                        href={`https://map.naver.com/v5/search/${encodeURIComponent(getMapSearchTerm(item.location))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:underline hover:text-primary-purple transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {item.location}
+                      </a>
+                    </td>
                     <td className="px-4 py-3 opacity-80">{item.count}명</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const manager = getManagerForKeyword(item.keyword);
+                        return manager ? (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setToast({ message: `${manager.name}: ${manager.phone}`, type: 'success' });
+                            }}
+                            className="text-[11px] font-bold text-primary-purple hover:underline flex items-center gap-1"
+                          >
+                            <Users className="w-3 h-3" />
+                            {manager.name.split(' ')[0]}
+                          </button>
+                        ) : '-';
+                      })()}
+                    </td>
                   </tr>
                         );
                       })}
@@ -1848,9 +2128,10 @@ ${isApproved ? `✨ 변경 확정 정보:
                     const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
                     
                     const isCompatible = !isPending && searchedTeamObj && item.id !== searchedTeamObj.id &&
-                                        Math.abs(searchedTeamObj.count - item.count) <= 2 && 
+                                        Math.abs(searchedTeamObj.count - item.count) <= 3 && 
                                         (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop()) &&
-                                        (searchedTeamObj.location === item.location);
+                                        (searchedTeamObj.location === item.location) &&
+                                        (searchedTeamObj.date !== item.date);
 
                     return (
                       <motion.div 
@@ -1866,6 +2147,15 @@ ${isApproved ? `✨ 변경 확정 정보:
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-black text-text-main text-base leading-tight">{item.teamName}</span>
                               {isSearchedTeam && <span className="text-[9px] bg-primary-purple text-white px-2 py-0.5 rounded-full font-black shadow-sm">검색됨</span>}
+                              {isSearchedTeam && (
+                                <a 
+                                  href={getManagerContactSms(item)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[9px] bg-pastel-pink text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm flex items-center gap-1"
+                                >
+                                  <Phone className="w-2.5 h-2.5" /> 담당자문의
+                                </a>
+                              )}
                               {isCompatible && <span className="text-[9px] bg-green-500 text-white px-2 py-0.5 rounded-full font-black shadow-sm">교환가능</span>}
                               {isPending && (
                                 <span className="text-[9px] bg-pastel-orange text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm">
@@ -1876,16 +2166,43 @@ ${isApproved ? `✨ 변경 확정 정보:
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold text-text-muted">
                               <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {item.date}</span>
                               <span>•</span>
-                              <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {item.location}</span>
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3" /> 
+                                <a 
+                                  href={`https://map.naver.com/v5/search/${encodeURIComponent(getMapSearchTerm(item.location))}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline decoration-pastel-purple decoration-1 underline-offset-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {item.location}
+                                </a>
+                              </span>
+                              <span>•</span>
+                              {(() => {
+                                const manager = getManagerForKeyword(item.keyword);
+                                return manager ? (
+                                  <span 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setToast({ message: `${manager.name}: ${manager.phone}`, type: 'success' });
+                                    }}
+                                    className="flex items-center gap-1 text-primary-purple"
+                                  >
+                                    <Users className="w-3 h-3" /> {manager.name.split(' ')[0]}
+                                  </span>
+                                ) : null;
+                              })()}
                             </div>
                           </div>
                           <span className={`px-2.5 py-1 rounded-lg font-black text-[10px] shadow-sm shrink-0 ${
+                            (item.keyword.startsWith('우수_') || item.keyword.includes('우수조직')) ? 'bg-pastel-green text-green-700 border-green-200 shadow-sm' :
                             item.keyword.includes('회복') ? 'bg-pastel-pink text-red-600' : 
                             item.keyword.includes('혁신') ? 'bg-pastel-orange text-orange-600' :
                             item.keyword.includes('신뢰') ? 'bg-pastel-blue text-blue-600' :
                             item.keyword.includes('리더') ? 'bg-pastel-purple text-primary-purple' : 'bg-pastel-green text-green-600'
                           }`}>
-                            {item.keyword.includes('우수조직') ? `우수_${item.keyword.split('_').pop()}` : item.keyword.split('_').pop()}
+                            {(item.keyword.startsWith('우수_') || item.keyword.includes('우수조직')) ? `우수_${item.keyword.split('_').pop()}` : item.keyword.split('_').pop()}
                           </span>
                         </div>
                           <div className="flex items-center justify-between text-[11px] font-bold">
@@ -1977,7 +2294,7 @@ ${isApproved ? `✨ 변경 확정 정보:
       {/* Team Detail Popup */}
       <AnimatePresence>
         {selectedTeam && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1988,12 +2305,16 @@ ${isApproved ? `✨ 변경 확정 정보:
               }}
             />
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-pastel-purple"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative bg-white w-full max-w-sm md:rounded-3xl rounded-t-[40px] shadow-2xl overflow-hidden border-t md:border border-pastel-purple max-h-[90vh] flex flex-col"
             >
-              <div className="bg-primary-purple p-6 md:p-8 text-white relative">
+              {/* Mobile Drag Handle */}
+              <div className="md:hidden w-12 h-1.5 bg-white/30 rounded-full mx-auto mt-4 absolute top-0 left-1/2 -translate-x-1/2 z-10" />
+              
+              <div className="bg-primary-purple p-6 md:p-8 text-white relative shrink-0">
                 <div className="absolute top-6 right-6 flex items-center gap-2">
                   {(isAdmin || isSystemAdmin) && !isEditing && (
                     <>
@@ -2027,7 +2348,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center gap-3 mb-4 mt-2 md:mt-0">
                   <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shadow-inner">
                     <Users className="w-7 h-7" />
                   </div>
@@ -2049,7 +2370,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                 </div>
               </div>
               
-              <div className="p-6 md:p-8 space-y-8">
+              <div className="p-6 md:p-8 space-y-8 overflow-y-auto custom-scrollbar pb-12 md:pb-8">
                 {isEditing && editForm ? (
                   <div className="space-y-5">
                     <div className="grid grid-cols-2 gap-4">
@@ -2164,6 +2485,30 @@ ${isApproved ? `✨ 변경 확정 정보:
                       </div>
                     </div>
 
+                    <div className="flex flex-col md:flex-row gap-6 md:items-center">
+                      <div className="space-y-1.5 flex-1">
+                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">운영 담당자</p>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-pastel-purple/30 flex items-center justify-center">
+                            <Phone className="w-5 h-5 text-primary-purple" />
+                          </div>
+                          <div>
+                            {(() => {
+                              const manager = getManagerForKeyword(selectedTeam.keyword);
+                              return manager ? (
+                                <>
+                                  <p className="font-bold text-text-main">{manager.name}</p>
+                                  <p className="text-xs text-text-muted">{manager.phone}</p>
+                                </>
+                              ) : (
+                                <p className="font-bold text-text-main">운영팀 문의</p>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="h-px bg-pastel-purple/30"></div>
 
                     <div className="space-y-4">
@@ -2183,7 +2528,15 @@ ${isApproved ? `✨ 변경 확정 정보:
                           </div>
                           장소
                         </span>
-                        <span className="font-black text-text-main">{selectedTeam.location}</span>
+                        <a 
+                          href={`https://map.naver.com/v5/search/${encodeURIComponent(getMapSearchTerm(selectedTeam.location))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-black text-primary-purple hover:underline flex items-center gap-1"
+                        >
+                          {selectedTeam.location}
+                          <ChevronRight className="w-4 h-4" />
+                        </a>
                       </div>
                       <div className="flex items-center justify-between p-4 bg-app-bg rounded-2xl border border-pastel-purple/30">
                         <span className="text-text-muted font-bold flex items-center gap-3 text-sm">
@@ -2290,6 +2643,10 @@ ${isApproved ? `✨ 변경 확정 정보:
         <button onClick={startChangeFlow} className={`flex flex-col items-center gap-1 ${activeTab === 'change' ? 'text-primary-purple' : 'text-text-muted'}`}>
           <RefreshCw className="w-5 h-5" />
           <span className="text-[10px] font-bold">차수변경</span>
+        </button>
+        <button onClick={() => setActiveTab('managers')} className={`flex flex-col items-center gap-1 ${activeTab === 'managers' ? 'text-primary-purple' : 'text-text-muted'}`}>
+          <Users className="w-5 h-5" />
+          <span className="text-[10px] font-bold">담당자</span>
         </button>
       </nav>
     </div>

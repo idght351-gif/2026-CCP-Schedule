@@ -84,6 +84,7 @@ export {
   deleteDoc, 
   onSnapshot, 
   query, 
-  orderBy 
+  orderBy,
+  getDocs
 };
 export type { User };

@@ -26,7 +26,9 @@
         "our": { "$ref": "Schedule" },
         "target": { "$ref": "Schedule" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
-        "timestamp": { "type": "string" }
+        "timestamp": { "type": "string" },
+        "sentSmsOur": { "type": "boolean" },
+        "sentSmsTarget": { "type": "boolean" }
       },
       "required": ["our", "target", "status", "timestamp"]
     }

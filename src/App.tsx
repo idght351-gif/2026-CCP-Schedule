@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, ChangeEvent, useEffect } from 'react';
+import React, { useState, useMemo, useRef, ChangeEvent, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -131,7 +131,15 @@ export default function App() {
   };
 
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [changeRequests, setChangeRequests] = useState<{ id: number, our: Schedule, target: Schedule, status: 'pending' | 'approved' | 'rejected', timestamp: string }[]>([]);
+  const [changeRequests, setChangeRequests] = useState<{ 
+    id: number, 
+    our: Schedule, 
+    target: Schedule, 
+    status: 'pending' | 'approved' | 'rejected', 
+    timestamp: string,
+    sentSmsOur?: boolean,
+    sentSmsTarget?: boolean
+  }[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('progress');
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [filterValue, setFilterValue] = useState<string>('');
@@ -148,6 +156,14 @@ export default function App() {
   const [step1Search, setStep1Search] = useState('');
   const [step2Search, setStep2Search] = useState('');
   const [activeFilterMenu, setActiveFilterMenu] = useState<FilterType | null>(null);
+  const updateSmsStatus = async (requestId: number, teamType: 'our' | 'target') => {
+    try {
+      const field = teamType === 'our' ? 'sentSmsOur' : 'sentSmsTarget';
+      await updateDoc(doc(db, 'changeRequests', requestId.toString()), { [field]: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'changeRequests');
+    }
+  };
   const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isAdmin, setIsAdmin] = useState(() => {
     return localStorage.getItem('is_admin') === 'true';
@@ -350,7 +366,8 @@ export default function App() {
     return reqs;
   }, [changeRequests, isAdmin, isSystemAdmin, requestFilter]);
 
-  const getSmsLink = (req: { our: Schedule, target: Schedule, status: string }) => {
+  const getSmsLink = (req: { our: Schedule, target: Schedule, status: string }, teamType: 'our' | 'target') => {
+    const team = teamType === 'our' ? req.our : req.target;
     const isApproved = req.status === 'approved';
     const statusText = isApproved ? '승인' : '반려';
     const platformUrl = "https://2026-ccp-schedule-aot9.vercel.app/";
@@ -380,14 +397,10 @@ ${isApproved ? `✨ 변경 확정 정보:
 오늘도 기분 좋은 하루 보내세요!`;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    // iOS requires semicolon (;) as a separator for multiple recipients in SMS links
-    // Android and others typically use comma (,)
-    const separator = isIOS ? ';' : ','; 
-    const cleanPhone = (p: string) => p.replace(/[^0-9]/g, '');
-    const phones = `${cleanPhone(req.our.phone)}${separator}${cleanPhone(req.target.phone)}`;
-    const bodyPrefix = isIOS ? '&' : '?';
+    const separator = isIOS ? '&' : '?';
+    const cleanPhone = team.phone.replace(/[^0-9]/g, '');
     
-    return `sms:${phones}${bodyPrefix}body=${encodeURIComponent(message)}`;
+    return `sms:${cleanPhone}${separator}body=${encodeURIComponent(message)}`;
   };
 
   useEffect(() => {
@@ -433,8 +446,11 @@ ${isApproved ? `✨ 변경 확정 정보:
 
     // If there's a search query, prioritize showing that team and its keyword group
     if (searchQuery.trim()) {
-      searchedTeamObj = schedules.find(item => item.teamName.includes(searchQuery.trim())) || null;
-      if (searchedTeamObj) {
+      const matches = schedules.filter(item => item.teamName.includes(searchQuery.trim()));
+      
+      // Only consider it "Our Team" if exactly one match is found
+      if (matches.length === 1) {
+        searchedTeamObj = matches[0];
         const baseKeyword = searchedTeamObj.keyword.split('_').pop() || searchedTeamObj.keyword;
         
         // Compatible teams logic
@@ -464,7 +480,7 @@ ${isApproved ? `✨ 변경 확정 정보:
         // Sort: Searched -> Compatible -> Keyword Group -> Others
         data = [searchedTeamObj, ...compatibleTeams, ...keywordGroup, ...others];
       } else {
-        data = [];
+        data = matches;
       }
     } else {
       if (filterType === 'month') {
@@ -696,6 +712,25 @@ ${isApproved ? `✨ 변경 확정 정보:
     setChangeStep('confirm');
   };
 
+  const startChangeWithTeam = (team: Schedule) => {
+    setOurTeam(team);
+    setTargetTeam(null);
+    setStep2Search('');
+    setIsAgreed(false);
+    setActiveTab('change');
+    setChangeStep('select_theirs');
+    setActiveFilterMenu(null);
+    setSearchQuery('');
+    
+    // Scroll to instructions section
+    setTimeout(() => {
+      const element = document.getElementById('change-instructions');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
   const quickChange = (our: Schedule, target: Schedule) => {
     setOurTeam(our);
     setTargetTeam(target);
@@ -827,27 +862,53 @@ ${isApproved ? `✨ 변경 확정 정보:
         const offset = isFirstPartId ? 1 : 0;
         const id = isFirstPartId ? Number(firstPart) : (Date.now() + index);
 
+        // Mapping based on the provided image structure:
+        // A: 일정, B: 키워드, C: 팀, D: 팀장, E: 팀장전화번호, F: 인원수, G: 강사, H: 보조, I: 장소
+        const date = parts[0 + offset]?.replace(/^"|"$/g, '') || '';
+        const keyword = parts[1 + offset]?.replace(/^"|"$/g, '') || '';
+        const teamName = parts[2 + offset]?.replace(/^"|"$/g, '') || '';
+        const leaderName = parts[3 + offset]?.replace(/^"|"$/g, '') || '';
+        const phone = parts[4 + offset]?.replace(/^"|"$/g, '') || '';
+        const count = parseInt(parts[5 + offset]?.replace(/[^0-9]/g, '')) || 0;
+        const instructor1 = parts[6 + offset]?.replace(/^"|"$/g, '') || '';
+        const instructor2 = parts[7 + offset]?.replace(/^"|"$/g, '') || '';
+        const location = parts[8 + offset]?.replace(/^"|"$/g, '') || '';
+        const memo = parts[9 + offset]?.replace(/^"|"$/g, '') || '';
+
         return {
-          id: id,
-          date: parts[0 + offset]?.replace(/^"|"$/g, '') || '',
-          keyword: parts[1 + offset]?.replace(/^"|"$/g, '') || '',
-          teamName: parts[2 + offset]?.replace(/^"|"$/g, '') || '',
-          leaderName: parts[3 + offset]?.replace(/^"|"$/g, '') || '',
-          phone: parts[4 + offset]?.replace(/^"|"$/g, '') || '',
-          count: parseInt(parts[5 + offset]?.replace(/[^0-9]/g, '')) || 0,
-          location: parts[6 + offset]?.replace(/^"|"$/g, '') || '',
-          memo: parts[7 + offset]?.replace(/^"|"$/g, '') || '',
-          instructor1: '',
-          instructor2: ''
+          id,
+          date,
+          keyword,
+          teamName,
+          leaderName,
+          phone,
+          count,
+          location: location || '연수원',
+          memo,
+          instructor1,
+          instructor2
         };
       });
 
       if (newSchedules.length > 0) {
-        setToast({ message: '데이터를 업로드 중입니다...', type: 'success' });
-        const uploadPromises = newSchedules.map(s => setDoc(doc(db, 'schedules', s.id.toString()), s));
-        await Promise.all(uploadPromises);
-        setToast({ message: `${newSchedules.length}건의 데이터가 업로드되었습니다.`, type: 'success' });
-        handleReset();
+        setToast({ message: '기존 데이터를 삭제하고 새 데이터를 연결 중입니다...', type: 'success' });
+        
+        try {
+          // Clear existing schedules
+          const snapshot = await getDocs(collection(db, 'schedules'));
+          const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
+          await Promise.all(deletePromises);
+
+          // Upload new schedules
+          const uploadPromises = newSchedules.map(s => setDoc(doc(db, 'schedules', s.id.toString()), s));
+          await Promise.all(uploadPromises);
+          
+          setToast({ message: `${newSchedules.length}건의 데이터가 성공적으로 연결되었습니다.`, type: 'success' });
+          handleReset();
+        } catch (err) {
+          console.error('Upload error:', err);
+          setToast({ message: '데이터 업로드 중 오류가 발생했습니다.', type: 'error' });
+        }
       }
     } catch (error) {
       console.error('Parsing error:', error);
@@ -1421,7 +1482,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <h4 className="text-xl font-black text-text-main">{m.name}</h4>
                     </div>
                     <div className="w-12 h-12 bg-app-bg rounded-2xl flex items-center justify-center group-hover:bg-primary-purple transition-colors">
-                      <Phone className="w-6 h-6 text-primary-purple group-hover:text-white transition-colors" />
+                      <MessageCircle className="w-6 h-6 text-primary-purple group-hover:text-white transition-colors" />
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-4 border-t border-pastel-purple/30">
@@ -1495,7 +1556,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                         
                         {(isAdmin || isSystemAdmin) && (
                           <div className="flex items-center gap-2">
-                            {req.status === 'pending' ? (
+                            {req.status === 'pending' && (
                               <>
                                 <button 
                                   onClick={() => rejectRequest(req.id)}
@@ -1510,13 +1571,6 @@ ${isApproved ? `✨ 변경 확정 정보:
                                   승인
                                 </button>
                               </>
-                            ) : (
-                              <a 
-                                href={getSmsLink(req)}
-                                className="px-3 py-1.5 bg-white border border-pastel-purple text-xs font-bold rounded-lg hover:bg-pastel-purple transition-colors flex items-center gap-2 text-primary-purple shadow-sm"
-                              >
-                                <Phone className="w-3.5 h-3.5" /> 단체 안내 문자 발송
-                              </a>
                             )}
                             
                             <button 
@@ -1530,21 +1584,57 @@ ${isApproved ? `✨ 변경 확정 정보:
                         )}
                       </div>
 
-                      <div className="flex items-center gap-4 bg-app-bg/50 p-4 rounded-xl border border-pastel-purple/30">
-                        <div className="flex-1 space-y-1">
-                          <p className="text-[10px] font-bold text-text-muted uppercase">우리 팀 (현재)</p>
-                          <p className="font-bold text-sm text-text-main">{req.our.teamName}</p>
-                          <p className="text-xs text-text-muted">{req.our.date} · {req.our.location}</p>
+                      <div className="flex flex-col md:flex-row items-stretch gap-4 bg-app-bg/50 p-4 rounded-xl border border-pastel-purple/30">
+                        <div className="flex-1 space-y-3">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-bold text-text-muted uppercase">우리 팀 (현재)</p>
+                            <p className="font-bold text-sm text-text-main">{req.our.teamName}</p>
+                            <p className="text-xs text-text-muted">{req.our.date} · {req.our.location}</p>
+                          </div>
+                          {req.status !== 'pending' && (isAdmin || isSystemAdmin) && (
+                            <a 
+                              href={getSmsLink(req, 'our')}
+                              onClick={() => updateSmsStatus(req.id, 'our')}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all shadow-sm border ${
+                                req.sentSmsOur 
+                                  ? 'bg-pastel-purple/20 text-text-muted border-pastel-purple/30' 
+                                  : 'bg-white text-primary-purple border-primary-purple/30 hover:bg-pastel-purple/10'
+                              }`}
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              {req.sentSmsOur ? '발송완료' : '안내문자발송'}
+                            </a>
+                          )}
                         </div>
-                        <div className="flex flex-col items-center">
+                        
+                        <div className="flex flex-row md:flex-col items-center justify-center">
                           <div className="w-8 h-8 rounded-full bg-white border border-pastel-purple flex items-center justify-center shadow-sm">
                             <ChevronRight className="w-4 h-4 text-primary-purple" />
                           </div>
                         </div>
-                        <div className="flex-1 space-y-1 text-right">
-                          <p className="text-[10px] font-bold text-text-muted uppercase">상대 팀 (희망)</p>
-                          <p className="font-bold text-sm text-primary-purple">{req.target.teamName}</p>
-                          <p className="text-xs text-text-muted">{req.target.date} · {req.target.location}</p>
+
+                        <div className="flex-1 space-y-3 text-right">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-bold text-text-muted uppercase">상대 팀 (희망)</p>
+                            <p className="font-bold text-sm text-primary-purple">{req.target.teamName}</p>
+                            <p className="text-xs text-text-muted">{req.target.date} · {req.target.location}</p>
+                          </div>
+                          {req.status !== 'pending' && (isAdmin || isSystemAdmin) && (
+                            <div className="flex justify-end">
+                              <a 
+                                href={getSmsLink(req, 'target')}
+                                onClick={() => updateSmsStatus(req.id, 'target')}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all shadow-sm border ${
+                                  req.sentSmsTarget 
+                                    ? 'bg-pastel-purple/20 text-text-muted border-pastel-purple/30' 
+                                    : 'bg-white text-primary-purple border-primary-purple/30 hover:bg-pastel-purple/10'
+                                }`}
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                {req.sentSmsTarget ? '발송완료' : '안내문자발송'}
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1755,7 +1845,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                           return (
                             <div 
                               key={item.id} 
-                              className={`p-6 flex items-center justify-between transition-all ${isCompatible ? 'hover:bg-pastel-green/20 cursor-pointer' : 'opacity-40 bg-app-bg cursor-not-allowed grayscale'}`}
+                              className={`p-6 flex items-center justify-between transition-all ${isCompatible ? 'hover:bg-pastel-green/20 cursor-pointer' : 'bg-app-bg/50'}`}
                               onClick={() => isCompatible && selectTargetTeam(item)}
                             >
                               <div className="flex-1 space-y-2">
@@ -1769,7 +1859,16 @@ ${isApproved ? `✨ 변경 확정 정보:
                                       변경 가능
                                     </div>
                                   ) : (
-                                    <span className="text-[10px] bg-pastel-purple text-text-muted px-2 py-0.5 rounded-full font-bold">변경 불가</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] bg-pastel-purple text-text-muted px-2 py-0.5 rounded-full font-bold">변경 불가</span>
+                                      <a 
+                                        href={getManagerContactSms(item)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="text-[9px] bg-pastel-pink text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm flex items-center gap-1"
+                                      >
+                                        <MessageCircle className="w-2.5 h-2.5" /> 담당자문의
+                                      </a>
+                                    </div>
                                   )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-text-muted">
@@ -1841,11 +1940,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <div className="mt-6 p-4 bg-white/80 rounded-2xl border border-pastel-blue/30 shadow-sm">
                         <p className="text-[10px] font-black text-primary-purple mb-2 uppercase tracking-widest">상대 팀장 연락처</p>
                         <a 
-                          href={`tel:${targetTeam.phone}`}
+                          href={`sms:${targetTeam.phone}`}
                           className="flex items-center gap-3 hover:text-primary-purple transition-colors"
                         >
                           <div className="w-10 h-10 shrink-0 rounded-full bg-primary-purple flex items-center justify-center text-white shadow-md">
-                            <Phone className="w-5 h-5" />
+                            <MessageCircle className="w-5 h-5" />
                           </div>
                           <div className="flex flex-col">
                             <span className="text-sm font-black text-text-main">{targetTeam.leaderName} 팀장</span>
@@ -2022,8 +2121,9 @@ ${isApproved ? `✨ 변경 확정 정보:
                     </thead>
                     <tbody className="divide-y divide-pastel-purple/10">
                       {filteredData.map((item, idx) => {
-                        const isSearchedTeam = searchQuery && item.teamName.includes(searchQuery.trim());
-                        const searchedTeamObj = searchQuery ? schedules.find(s => s.teamName.includes(searchQuery.trim())) : null;
+                        const matches = searchQuery ? schedules.filter(s => s.teamName.includes(searchQuery.trim())) : [];
+                        const searchedTeamObj = matches.length === 1 ? matches[0] : null;
+                        const isSearchedTeam = searchedTeamObj && item.id === searchedTeamObj.id;
                         
                         const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
                         
@@ -2033,12 +2133,30 @@ ${isApproved ? `✨ 변경 확정 정보:
                                                         (searchedTeamObj.location === item.location) &&
                                                         (searchedTeamObj.date !== item.date);
 
+                        const isSameKeyword = !isCompatibleWithSearched && searchedTeamObj && item.id !== searchedTeamObj.id &&
+                                             (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop());
+
                         return (
-                  <tr 
-                    key={item.id} 
-                    className={`transition-colors cursor-pointer group ${isSearchedTeam ? 'bg-primary-purple text-white shadow-inner' : 'hover:bg-app-bg'} ${isPending ? 'opacity-60' : ''}`}
-                    onClick={() => setSelectedTeam(item)}
-                  >
+                          <React.Fragment key={item.id}>
+                            {searchedTeamObj && idx === 0 && (
+                              <tr className="bg-primary-purple/5">
+                                <td colSpan={6} className="px-4 py-2 text-[10px] font-black text-primary-purple uppercase tracking-widest">검색된 우리 팀</td>
+                              </tr>
+                            )}
+                            {searchedTeamObj && idx === 1 && isCompatibleWithSearched && (
+                              <tr className="bg-pastel-green/10">
+                                <td colSpan={6} className="px-4 py-2 text-[10px] font-black text-green-700 uppercase tracking-widest">교체 가능 팀 (조건 일치)</td>
+                              </tr>
+                            )}
+                            {searchedTeamObj && idx > 0 && !isCompatibleWithSearched && isSameKeyword && !filteredData[idx-1].keyword.includes(searchedTeamObj!.keyword.split('_').pop()!) && (
+                              <tr className="bg-pastel-blue/10">
+                                <td colSpan={6} className="px-4 py-2 text-[10px] font-black text-blue-700 uppercase tracking-widest">같은 키워드 팀 (조건 확인 필요)</td>
+                              </tr>
+                            )}
+                            <tr 
+                              className={`transition-colors cursor-pointer group ${isSearchedTeam ? 'bg-primary-purple text-white shadow-inner' : 'hover:bg-app-bg'} ${isPending ? 'opacity-60' : ''}`}
+                              onClick={() => setSelectedTeam(item)}
+                            >
                     <td className="px-4 py-3 font-medium">{item.date}</td>
                     <td className={`px-4 py-3 font-bold flex items-center gap-2 ${isSearchedTeam ? 'text-white' : 'text-text-main'}`}>
                       {item.teamName}
@@ -2056,18 +2174,20 @@ ${isApproved ? `✨ 변경 확정 정보:
                           className="flex items-center gap-1 px-2 py-0.5 bg-pastel-green text-green-700 text-[9px] rounded-full hover:bg-green-100 transition-colors shadow-sm"
                         >
                           <RefreshCw className="w-2.5 h-2.5" />
-                          차수변경가능
+                          차수변경신청
                         </button>
                       )}
                       {isSearchedTeam && (
-                        <a 
-                          href={getManagerContactSms(item)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1 px-2 py-0.5 bg-pastel-pink text-primary-purple text-[9px] rounded-full hover:bg-red-100 transition-colors shadow-sm"
-                        >
-                          <Phone className="w-2.5 h-2.5" />
-                          담당자문의
-                        </a>
+                        <div className="flex items-center gap-1">
+                          <a 
+                            href={getManagerContactSms(item)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-pastel-pink text-primary-purple text-[9px] rounded-full hover:bg-red-100 transition-colors shadow-sm"
+                          >
+                            <MessageCircle className="w-2.5 h-2.5" />
+                            담당자문의
+                          </a>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -2105,8 +2225,9 @@ ${isApproved ? `✨ 변경 확정 정보:
                       })()}
                     </td>
                   </tr>
-                        );
-                      })}
+                </React.Fragment>
+              );
+            })}
                       {filteredData.length === 0 && (
                         <tr>
                           <td colSpan={5} className="px-4 py-20 text-center text-text-muted">
@@ -2122,8 +2243,9 @@ ${isApproved ? `✨ 변경 확정 정보:
                 {/* Mobile Card View */}
                 <div className="md:hidden divide-y divide-pastel-purple/10">
                   {filteredData.map((item, idx) => {
-                    const isSearchedTeam = searchQuery && item.teamName.includes(searchQuery.trim());
-                    const searchedTeamObj = searchQuery ? schedules.find(s => s.teamName.includes(searchQuery.trim())) : null;
+                    const matches = searchQuery ? schedules.filter(s => s.teamName.includes(searchQuery.trim())) : [];
+                    const searchedTeamObj = matches.length === 1 ? matches[0] : null;
+                    const isSearchedTeam = searchedTeamObj && item.id === searchedTeamObj.id;
                     
                     const isPending = changeRequests.some(r => r.status === 'pending' && (r.our.id === item.id || r.target.id === item.id));
                     
@@ -2133,8 +2255,21 @@ ${isApproved ? `✨ 변경 확정 정보:
                                         (searchedTeamObj.location === item.location) &&
                                         (searchedTeamObj.date !== item.date);
 
+                    const isSameKeyword = !isCompatible && searchedTeamObj && item.id !== searchedTeamObj.id &&
+                                         (searchedTeamObj.keyword.split('_').pop() === item.keyword.split('_').pop());
+
                     return (
-                      <motion.div 
+                      <React.Fragment key={item.id}>
+                        {searchedTeamObj && idx === 0 && (
+                          <div className="px-5 py-2 bg-primary-purple/5 text-[10px] font-black text-primary-purple uppercase tracking-widest border-b border-pastel-purple/20">검색된 우리 팀</div>
+                        )}
+                        {searchedTeamObj && idx === 1 && isCompatible && (
+                          <div className="px-5 py-2 bg-pastel-green/10 text-[10px] font-black text-green-700 uppercase tracking-widest border-b border-pastel-purple/20">교체 가능 팀 (조건 일치)</div>
+                        )}
+                        {searchedTeamObj && idx > 0 && !isCompatible && isSameKeyword && !filteredData[idx-1].keyword.includes(searchedTeamObj!.keyword.split('_').pop()!) && (
+                          <div className="px-5 py-2 bg-pastel-blue/10 text-[10px] font-black text-blue-700 uppercase tracking-widest border-b border-pastel-purple/20">같은 키워드 팀 (조건 확인 필요)</div>
+                        )}
+                        <motion.div 
                         key={item.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -2148,13 +2283,15 @@ ${isApproved ? `✨ 변경 확정 정보:
                               <span className="font-black text-text-main text-base leading-tight">{item.teamName}</span>
                               {isSearchedTeam && <span className="text-[9px] bg-primary-purple text-white px-2 py-0.5 rounded-full font-black shadow-sm">검색됨</span>}
                               {isSearchedTeam && (
-                                <a 
-                                  href={getManagerContactSms(item)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-[9px] bg-pastel-pink text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm flex items-center gap-1"
-                                >
-                                  <Phone className="w-2.5 h-2.5" /> 담당자문의
-                                </a>
+                                <div className="flex items-center gap-1">
+                                  <a 
+                                    href={getManagerContactSms(item)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[9px] bg-pastel-pink text-primary-purple px-2 py-0.5 rounded-full font-black shadow-sm flex items-center gap-1"
+                                  >
+                                    <MessageCircle className="w-2.5 h-2.5" /> 담당자문의
+                                  </a>
+                                </div>
                               )}
                               {isCompatible && <span className="text-[9px] bg-green-500 text-white px-2 py-0.5 rounded-full font-black shadow-sm">교환가능</span>}
                               {isPending && (
@@ -2222,7 +2359,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                                   className="flex items-center gap-1 px-3 py-1.5 bg-pastel-green text-green-700 text-[10px] rounded-lg hover:bg-green-100 transition-colors shadow-sm font-black"
                                 >
                                   <RefreshCw className="w-3 h-3" />
-                                  차수변경
+                                  차수변경신청
                                 </button>
                               )}
                               <div className="flex items-center gap-1 text-primary-purple font-black">
@@ -2231,8 +2368,9 @@ ${isApproved ? `✨ 변경 확정 정보:
                             </div>
                           </div>
                       </motion.div>
-                    );
-                  })}
+                    </React.Fragment>
+                  );
+                })}
                   {filteredData.length === 0 && (
                     <div className="py-20 text-center space-y-4">
                       <div className="w-16 h-16 bg-app-bg rounded-full flex items-center justify-center mx-auto">
@@ -2474,11 +2612,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <div className="space-y-1.5 flex-1">
                         <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">연락처</p>
                         <a 
-                          href={`tel:${selectedTeam.phone}`}
+                          href={`sms:${selectedTeam.phone}`}
                           className="flex items-center gap-3 font-black text-primary-purple hover:text-primary-purple/80 transition-all text-xl"
                         >
                           <div className="w-10 h-10 rounded-full bg-pastel-purple flex items-center justify-center shadow-sm">
-                            <Phone className="w-5 h-5" />
+                            <MessageCircle className="w-5 h-5" />
                           </div>
                           <span className="tracking-tight">{selectedTeam.phone}</span>
                         </a>
@@ -2490,7 +2628,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                         <p className="text-[10px] font-black text-text-muted uppercase tracking-widest">운영 담당자</p>
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-pastel-purple/30 flex items-center justify-center">
-                            <Phone className="w-5 h-5 text-primary-purple" />
+                            <MessageCircle className="w-5 h-5 text-primary-purple" />
                           </div>
                           <div>
                             {(() => {
@@ -2566,11 +2704,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                     )}
 
                     <a 
-                      href={`tel:${selectedTeam.phone}`}
+                      href={`sms:${selectedTeam.phone}`}
                       className="flex items-center justify-center gap-2 w-full py-4 bg-primary-purple hover:bg-primary-purple/90 text-white rounded-2xl font-bold shadow-lg shadow-pastel-purple transition-all active:scale-95"
                     >
-                      <Phone className="w-5 h-5" />
-                      팀장에게 바로연결
+                      <MessageCircle className="w-5 h-5" />
+                      팀장에게 문자보내기
                     </a>
                   </div>
                 )}

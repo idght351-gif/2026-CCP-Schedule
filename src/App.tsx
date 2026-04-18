@@ -33,10 +33,7 @@ import { scheduleData, Schedule } from './data';
 import { 
   db, 
   auth, 
-  googleProvider, 
-  signInWithPopup, 
-  signInWithRedirect,
-  getRedirectResult,
+  signInAnonymously,
   onAuthStateChanged, 
   collection, 
   doc, 
@@ -47,16 +44,17 @@ import {
   query, 
   orderBy,
   getDocs,
+  writeBatch,
   handleFirestoreError,
   OperationType,
   User
 } from './firebase';
-import { signOut } from 'firebase/auth';
 
 import { Toast } from './components/Toast';
 import { Header } from './components/Header';
 import { SummaryCards } from './components/SummaryCards';
 import { IntroSection } from './components/IntroSection';
+import firebaseConfig from '../firebase-applet-config.json';
 
 type FilterType = 'all' | 'month' | 'location' | 'keyword' | 'change';
 type TabType = 'progress' | 'change' | 'calendar' | 'requests' | 'managers';
@@ -104,6 +102,80 @@ const getManagerContactSms = (team: Schedule) => {
   const separator = isIOS ? '&' : '?';
   return `sms:${manager.phone.replace(/ /g, '')}${separator}body=${encodeURIComponent(message)}`;
 };
+
+function AdminPasswordModal({ isOpen, onClose, onSubmit }: { isOpen: boolean, onClose: () => void, onSubmit: (key: string) => void }) {
+  const [input, setInput] = useState('');
+  const [error, setError] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const adminCodes = ['2016041', '2016343', '2021166', '2017032'];
+    if (adminCodes.includes(input)) {
+       onSubmit(input);
+       setInput('');
+       setError(false);
+    } else {
+       setError(true);
+       setInput('');
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-md"
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="relative bg-white p-8 rounded-[40px] shadow-2xl w-full max-w-sm border border-pastel-purple"
+          >
+             <div className="w-16 h-16 bg-primary-purple rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-primary-purple/20">
+               <Key className="w-8 h-8 text-white" />
+             </div>
+             <h2 className="text-2xl font-black text-text-main mb-2 tracking-tight text-center">관리자 인증</h2>
+             <p className="text-sm text-text-muted mb-6 leading-relaxed text-center font-medium">전용 7자리 코드를 입력해주세요.</p>
+             <form onSubmit={handleSubmit} className="space-y-4">
+               <div className="relative">
+                 <input 
+                   type="text"
+                   value={input}
+                   onChange={e => setInput(e.target.value)}
+                   placeholder="0000000"
+                   autoFocus
+                   className={`w-full px-6 py-5 rounded-2xl border-2 transition-all outline-none text-center text-3xl font-black tracking-widest shadow-inner ${error ? 'border-red-400 bg-red-50 text-red-600 animate-shake' : 'border-pastel-purple focus:border-primary-purple bg-app-bg text-text-main'}`}
+                 />
+                 {error && <p className="text-xs text-red-500 font-bold mt-2 text-center">잘못된 코드입니다. 다시 입력해주세요.</p>}
+               </div>
+               <div className="flex gap-3 pt-2">
+                 <button 
+                   type="button"
+                   onClick={onClose}
+                   className="flex-1 py-4 rounded-2xl font-black text-text-muted bg-app-bg hover:bg-pastel-purple transition-all"
+                 >
+                   취소
+                 </button>
+                 <button 
+                   type="submit"
+                   className="flex-1 py-4 rounded-2xl font-black text-white bg-primary-purple hover:bg-primary-purple/90 transition-all shadow-lg shadow-primary-purple/20"
+                 >
+                   인증
+                 </button>
+               </div>
+             </form>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -165,10 +237,9 @@ export default function App() {
     }
   };
   const [requestFilter, setRequestFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [isAdmin, setIsAdmin] = useState(() => {
-    return localStorage.getItem('is_admin') === 'true';
-  });
-  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminKey, setAdminKey] = useState<string | null>(null);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Schedule | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
@@ -198,33 +269,40 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Handle Redirect Result for Mobile Login
+  // Handle URL Parameters
   useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          setToast({ message: '로그인되었습니다.', type: 'success' });
-        }
-      } catch (error) {
-        console.error("Redirect login error:", error);
+    if (!isAuthReady || schedules.length === 0) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const teamName = params.get('team');
+    const search = params.get('search');
+    
+    if (teamName || search) {
+      const query = teamName || search || '';
+      setSearchQuery(query);
+      // If it's a specific team name, we might want to scroll to it or highlight it
+      const team = schedules.find(s => s.teamName === query);
+      if (team) {
+        setSelectedTeam(team);
       }
-    };
-    checkRedirect();
-  }, []);
+    }
+  }, [isAuthReady, schedules]);
 
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
-      if (currentUser) {
-        // Check if system admin
-        setIsSystemAdmin(currentUser.email === "idght351@gmail.com");
-      } else {
-        setIsSystemAdmin(false);
-      }
     });
+    
+    // Auto sign in anonymously
+    signInAnonymously(auth).catch(err => {
+      // Just log internally, don't show toast as the app now functions without auth
+      // using strict data/key validation in the Firestore rules.
+      console.log("Anonymous auth restricted (guest mode active):", err.message);
+      setIsAuthReady(true);
+    });
+    
     return () => unsubscribe();
   }, []);
 
@@ -236,14 +314,7 @@ export default function App() {
     const qSchedules = query(collection(db, 'schedules'), orderBy('id', 'asc'));
     const unsubSchedules = onSnapshot(qSchedules, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Schedule);
-      if (data.length === 0 && (isAdmin || isSystemAdmin)) {
-        // Bootstrap initial data if empty and admin
-        scheduleData.forEach(async (s) => {
-          await setDoc(doc(db, 'schedules', s.id.toString()), s);
-        });
-      } else {
-        setSchedules(data);
-      }
+      setSchedules(data);
     }, (error) => {
       // Only log error, don't crash for public users
       console.error("Firestore schedules error:", error);
@@ -261,27 +332,38 @@ export default function App() {
       unsubSchedules();
       unsubRequests();
     };
-  }, [isAuthReady, isAdmin, isSystemAdmin]);
+  }, [isAuthReady, isAdmin]);
 
-  const login = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      console.error("Login error:", error);
-      if (error.code === 'auth/popup-blocked') {
-        setToast({ message: '팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.', type: 'error' });
-      } else {
-        setToast({ message: '로그인에 실패했습니다. 다시 시도해주세요.', type: 'error' });
-      }
-    }
+  const login = () => {
+    setShowAdminLogin(true);
   };
 
-  const logout = async () => {
+  const logout = () => {
+    setIsAdmin(false);
+    setAdminKey(null);
+    setToast({ message: '관리자 모드가 종료되었습니다.', type: 'success' });
+  };
+
+  const handleAdminAuth = (key: string) => {
+    setIsAdmin(true);
+    setAdminKey(key);
+    setShowAdminLogin(false);
+    setToast({ message: '관리자 인증에 성공하였습니다.', type: 'success' });
+  };
+
+  const logAdminAction = async (action: string, targetId: string, details: string = '') => {
+    if (!adminKey) return;
     try {
-      await signOut(auth);
-      setToast({ message: '로그아웃 되었습니다.', type: 'success' });
-    } catch (error) {
-      setToast({ message: '로그아웃에 실패했습니다.', type: 'error' });
+      const logId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+      await setDoc(doc(db, 'logs', logId), {
+        adminKey,
+        action,
+        targetId,
+        details,
+        timestamp: new Date().toLocaleString('ko-KR')
+      });
+    } catch (e) {
+      console.error("Logging error:", e);
     }
   };
 
@@ -355,7 +437,7 @@ export default function App() {
     let reqs = [...changeRequests];
     
     // User view: hide rejected requests as suggested
-    if (!isAdmin && !isSystemAdmin) {
+    if (!isAdmin) {
       reqs = reqs.filter(r => r.status !== 'rejected');
     }
 
@@ -364,13 +446,13 @@ export default function App() {
     }
     
     return reqs;
-  }, [changeRequests, isAdmin, isSystemAdmin, requestFilter]);
+  }, [changeRequests, isAdmin, requestFilter]);
 
   const getSmsLink = (req: { our: Schedule, target: Schedule, status: string }, teamType: 'our' | 'target') => {
     const team = teamType === 'our' ? req.our : req.target;
     const isApproved = req.status === 'approved';
     const statusText = isApproved ? '승인' : '반려';
-    const platformUrl = "https://2026-ccp-schedule-aot9.vercel.app/";
+    const platformUrl = `${window.location.origin}?team=${encodeURIComponent(team.teamName)}`;
     
     const message = `[2026 문화컨설팅 일정변경 안내]
 
@@ -610,6 +692,10 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const approveRequest = async (requestId: number) => {
+    if (!isAdmin || !adminKey) {
+      setToast({ message: '관리 권한이 없습니다. 다시 로그인해주세요.', type: 'error' });
+      return;
+    }
     const request = changeRequests.find(r => r.id === requestId);
     if (!request || request.status !== 'pending') return;
 
@@ -622,26 +708,34 @@ ${isApproved ? `✨ 변경 확정 정보:
       await updateDoc(ourRef, { 
         date: request.target.date, 
         location: request.target.location,
-        keyword: request.target.keyword
+        keyword: request.target.keyword,
+        adminKey
       });
       await updateDoc(targetRef, { 
         date: request.our.date, 
-        location: request.our.location,
-        keyword: request.our.keyword
+        location: request.our.location, 
+        keyword: request.our.keyword,
+        adminKey
       });
       
       // 2. Update request status in Firestore
-      await updateDoc(doc(db, 'changeRequests', requestId.toString()), { status: 'approved' });
+      await updateDoc(doc(db, 'changeRequests', requestId.toString()), { status: 'approved', adminKey });
       
+      await logAdminAction('APPROVE_REQUEST', requestId.toString(), `Swap: ${request.our.teamName} <-> ${request.target.teamName}`);
       setToast({ message: '요청이 승인되어 일정이 교체되었습니다.', type: 'success' });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'schedules/changeRequests');
+      handleFirestoreError(error, OperationType.UPDATE, 'schedules');
     }
   };
 
   const rejectRequest = async (requestId: number) => {
+    if (!isAdmin || !adminKey) {
+      setToast({ message: '관리 권한이 없습니다. 다시 로그인해주세요.', type: 'error' });
+      return;
+    }
     try {
-      await updateDoc(doc(db, 'changeRequests', requestId.toString()), { status: 'rejected' });
+      await updateDoc(doc(db, 'changeRequests', requestId.toString()), { status: 'rejected', adminKey });
+      await logAdminAction('REJECT_REQUEST', requestId.toString());
       setToast({ message: '요청이 반려되었습니다.', type: 'error' });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'changeRequests');
@@ -658,8 +752,10 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const deleteTeam = async (id: number) => {
+    if (!isAdmin || !adminKey) return;
     try {
       await deleteDoc(doc(db, 'schedules', id.toString()));
+      await logAdminAction('DELETE_TEAM', id.toString());
       setSelectedTeam(null);
       setIsEditing(false);
       setEditForm(null);
@@ -671,10 +767,11 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const handleEditSave = async () => {
-    if (!editForm) return;
+    if (!editForm || !isAdmin || !adminKey) return;
     
     try {
-      await setDoc(doc(db, 'schedules', editForm.id.toString()), editForm);
+      await setDoc(doc(db, 'schedules', editForm.id.toString()), { ...editForm, adminKey });
+      await logAdminAction('EDIT_TEAM', editForm.id.toString(), editForm.teamName);
       setSelectedTeam(editForm);
       setIsEditing(false);
       setEditForm(null);
@@ -768,8 +865,7 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const handleClearAll = async () => {
-    if (!isAdmin && !isSystemAdmin) return;
-    
+    if (!isAdmin || !adminKey) return;
     try {
       setToast({ message: '데이터를 삭제 중입니다...', type: 'success' });
       // 1. Clear Firestore schedules
@@ -780,8 +876,10 @@ ${isApproved ? `✨ 변경 확정 정보:
         return;
       }
 
-      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'schedules', d.id)));
+      const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
       await Promise.all(deletePromises);
+      
+      await logAdminAction('CLEAR_ALL_SCHEDULES', 'all');
       
       // 2. Clear local state
       setSchedules([]);
@@ -794,6 +892,7 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const downloadExcel = () => {
+    if (!isAdmin) return;
     if (schedules.length === 0) {
       setToast({ message: '다운로드할 데이터가 없습니다.', type: 'error' });
       return;
@@ -862,8 +961,6 @@ ${isApproved ? `✨ 변경 확정 정보:
         const offset = isFirstPartId ? 1 : 0;
         const id = isFirstPartId ? Number(firstPart) : (Date.now() + index);
 
-        // Mapping based on the provided image structure:
-        // A: 일정, B: 키워드, C: 팀, D: 팀장, E: 팀장전화번호, F: 인원수, G: 강사, H: 보조, I: 장소
         const date = parts[0 + offset]?.replace(/^"|"$/g, '') || '';
         const keyword = parts[1 + offset]?.replace(/^"|"$/g, '') || '';
         const teamName = parts[2 + offset]?.replace(/^"|"$/g, '') || '';
@@ -874,6 +971,9 @@ ${isApproved ? `✨ 변경 확정 정보:
         const instructor2 = parts[7 + offset]?.replace(/^"|"$/g, '') || '';
         const location = parts[8 + offset]?.replace(/^"|"$/g, '') || '';
         const memo = parts[9 + offset]?.replace(/^"|"$/g, '') || '';
+
+        // Only return a valid schedule if it at least has a team name
+        if (!teamName) return null;
 
         return {
           id,
@@ -886,28 +986,37 @@ ${isApproved ? `✨ 변경 확정 정보:
           location: location || '연수원',
           memo,
           instructor1,
-          instructor2
+          instructor2,
+          adminKey
         };
-      });
+      }).filter((s): s is Schedule => s !== null);
 
       if (newSchedules.length > 0) {
         setToast({ message: '기존 데이터를 삭제하고 새 데이터를 연결 중입니다...', type: 'success' });
         
         try {
-          // Clear existing schedules
-          const snapshot = await getDocs(collection(db, 'schedules'));
-          const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
-          await Promise.all(deletePromises);
-
-          // Upload new schedules
-          const uploadPromises = newSchedules.map(s => setDoc(doc(db, 'schedules', s.id.toString()), s));
-          await Promise.all(uploadPromises);
+          const batch = writeBatch(db);
           
+          // Clear existing schedules in the same batch
+          const snapshot = await getDocs(collection(db, 'schedules'));
+          snapshot.docs.forEach(d => {
+            batch.delete(d.ref);
+          });
+
+          // Upload new schedules in the same batch
+          newSchedules.forEach(s => {
+            const docRef = doc(db, 'schedules', s.id.toString());
+            batch.set(docRef, s);
+          });
+
+          // Single network request for all operations
+          await batch.commit();
+          
+          await logAdminAction('CSV_UPLOAD', 'all', `Uploaded ${newSchedules.length} schedules`);
           setToast({ message: `${newSchedules.length}건의 데이터가 성공적으로 연결되었습니다.`, type: 'success' });
           handleReset();
         } catch (err) {
-          console.error('Upload error:', err);
-          setToast({ message: '데이터 업로드 중 오류가 발생했습니다.', type: 'error' });
+          handleFirestoreError(err, OperationType.WRITE, 'schedules');
         }
       }
     } catch (error) {
@@ -917,6 +1026,7 @@ ${isApproved ? `✨ 변경 확정 정보:
   };
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) return;
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -1095,11 +1205,7 @@ ${isApproved ? `✨ 변경 확정 정보:
     <div className="min-h-screen bg-app-bg font-sans text-text-main pb-20">
       <Header 
         isAdmin={isAdmin}
-        isSystemAdmin={isSystemAdmin}
-        setIsAdmin={(val) => {
-          setIsAdmin(val);
-          localStorage.setItem('is_admin', val ? 'true' : 'false');
-        }}
+        setIsAdmin={setIsAdmin}
         setToast={setToast}
         handleReset={handleReset}
         setActiveTab={setActiveTab}
@@ -1107,9 +1213,14 @@ ${isApproved ? `✨ 변경 확정 정보:
         setShowClearConfirm={setShowClearConfirm}
         downloadExcel={downloadExcel}
         handleFileUpload={handleFileUpload}
-        user={user}
+        openAdminLogin={() => setShowAdminLogin(true)}
         logout={logout}
-        login={login}
+      />
+
+      <AdminPasswordModal 
+        isOpen={showAdminLogin}
+        onClose={() => setShowAdminLogin(false)}
+        onSubmit={handleAdminAuth}
       />
 
       <main className="max-w-6xl mx-auto p-4 space-y-6 mt-4">
@@ -1155,7 +1266,7 @@ ${isApproved ? `✨ 변경 확정 정보:
             >
               <CheckCircle2 className="w-4 h-4" />
               요청 내역 ({changeRequests.filter(r => r.status === 'pending').length})
-              {(isAdmin || isSystemAdmin) && activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
+              {isAdmin && activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
             </button>
             <button 
               onClick={() => { setActiveTab('managers'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
@@ -1354,7 +1465,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                 eventClick={(info) => {
                   setSelectedTeam(info.event.extendedProps as Schedule);
                 }}
-                editable={isAdmin || isSystemAdmin}
+                editable={isAdmin}
                 eventDrop={(info) => {
                   const newDate = info.event.start;
                   if (newDate) {
@@ -1508,11 +1619,11 @@ ${isApproved ? `✨ 변경 확정 정보:
                 <div className="flex gap-2">
                   {(['all', 'pending', 'approved', 'rejected'] as const).map((f) => {
                     // Hide rejected tab for non-admins
-                    if (!isAdmin && !isSystemAdmin && f === 'rejected') return null;
+                    if (!isAdmin && f === 'rejected') return null;
                     
                     const labels = { all: '전체', pending: '대기중', approved: '승인됨', rejected: '반려됨' };
                     const count = f === 'all' 
-                      ? (isAdmin || isSystemAdmin ? changeRequests.length : changeRequests.filter(r => r.status !== 'rejected').length)
+                      ? (isAdmin ? changeRequests.length : changeRequests.filter(r => r.status !== 'rejected').length)
                       : changeRequests.filter(r => r.status === f).length;
 
                     return (
@@ -1554,7 +1665,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                           <span className="text-[10px] text-text-muted font-bold">{req.timestamp}</span>
                         </div>
                         
-                        {(isAdmin || isSystemAdmin) && (
+                        {isAdmin && (
                           <div className="flex items-center gap-2">
                             {req.status === 'pending' && (
                               <>
@@ -1591,7 +1702,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                             <p className="font-bold text-sm text-text-main">{req.our.teamName}</p>
                             <p className="text-xs text-text-muted">{req.our.date} · {req.our.location}</p>
                           </div>
-                          {req.status !== 'pending' && (isAdmin || isSystemAdmin) && (
+                          {req.status !== 'pending' && isAdmin && (
                             <a 
                               href={getSmsLink(req, 'our')}
                               onClick={() => updateSmsStatus(req.id, 'our')}
@@ -1619,7 +1730,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                             <p className="font-bold text-sm text-primary-purple">{req.target.teamName}</p>
                             <p className="text-xs text-text-muted">{req.target.date} · {req.target.location}</p>
                           </div>
-                          {req.status !== 'pending' && (isAdmin || isSystemAdmin) && (
+                          {req.status !== 'pending' && isAdmin && (
                             <div className="flex justify-end">
                               <a 
                                 href={getSmsLink(req, 'target')}
@@ -2004,21 +2115,27 @@ ${isApproved ? `✨ 변경 확정 정보:
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-text-muted uppercase">{req.timestamp}</span>
                         <div className="flex items-center gap-2">
-                        {(isAdmin || isSystemAdmin) && req.status === 'pending' && (
-                            <>
+                          {isAdmin && req.status === 'pending' && (
+                            <div className="flex items-center gap-2">
                               <button 
-                                onClick={() => rejectRequest(req.id)}
-                                className="px-3 py-1 bg-app-bg text-text-muted text-[10px] font-bold rounded hover:bg-pastel-pink hover:text-primary-purple transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  rejectRequest(req.id);
+                                }}
+                                className="px-4 py-2 bg-app-bg text-text-muted text-xs font-bold rounded-lg hover:bg-pastel-pink hover:text-primary-purple transition-colors touch-manipulation min-h-[36px]"
                               >
                                 반려
                               </button>
                               <button 
-                                onClick={() => approveRequest(req.id)}
-                                className="px-3 py-1 bg-primary-purple text-white text-[10px] font-bold rounded hover:bg-primary-purple/90 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  approveRequest(req.id);
+                                }}
+                                className="px-4 py-2 bg-primary-purple text-white text-xs font-bold rounded-lg hover:bg-primary-purple/90 transition-colors shadow-sm touch-manipulation min-h-[36px]"
                               >
                                 승인
                               </button>
-                            </>
+                            </div>
                           )}
                           <span className={`px-2 py-1 rounded text-[10px] font-bold ${req.status === 'pending' ? 'bg-pastel-orange text-primary-purple' : req.status === 'approved' ? 'bg-pastel-green text-green-600' : 'bg-app-bg text-text-muted'}`}>
                             {req.status === 'pending' ? '승인 대기중' : req.status === 'approved' ? '승인 완료' : '반려됨'}
@@ -2454,7 +2571,7 @@ ${isApproved ? `✨ 변경 확정 정보:
               
               <div className="bg-primary-purple p-6 md:p-8 text-white relative shrink-0">
                 <div className="absolute top-6 right-6 flex items-center gap-2">
-                  {(isAdmin || isSystemAdmin) && !isEditing && (
+                  {isAdmin && !isEditing && (
                     <>
                       <button 
                         onClick={() => {
@@ -2696,7 +2813,7 @@ ${isApproved ? `✨ 변경 확정 정보:
                       </div>
                     </div>
 
-                    {(isAdmin || isSystemAdmin) && selectedTeam.memo && (
+                    {isAdmin && selectedTeam.memo && (
                       <div className="bg-pastel-orange/10 p-5 rounded-2xl border border-pastel-orange/30 space-y-2">
                         <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">관리자 메모</p>
                         <p className="text-sm font-bold text-text-main leading-relaxed">{selectedTeam.memo}</p>

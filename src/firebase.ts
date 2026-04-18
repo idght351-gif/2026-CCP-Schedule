@@ -1,12 +1,11 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocFromServer, getDocs } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocFromServer, getDocs, writeBatch } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
 
 // Error handling helper
 export enum OperationType {
@@ -73,9 +72,7 @@ async function testConnection() {
 testConnection();
 
 export { 
-  signInWithPopup, 
-  signInWithRedirect,
-  getRedirectResult,
+  signInAnonymously,
   onAuthStateChanged, 
   collection, 
   doc, 
@@ -85,6 +82,7 @@ export {
   onSnapshot, 
   query, 
   orderBy,
-  getDocs
+  getDocs,
+  writeBatch
 };
 export type { User };

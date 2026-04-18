@@ -4,7 +4,6 @@ import { User } from 'firebase/auth';
 
 interface HeaderProps {
   isAdmin: boolean;
-  isSystemAdmin: boolean;
   setIsAdmin: (isAdmin: boolean) => void;
   setToast: (toast: { message: string; type: 'success' | 'error' } | null) => void;
   handleReset: () => void;
@@ -13,14 +12,12 @@ interface HeaderProps {
   setShowClearConfirm: (show: boolean) => void;
   downloadExcel: () => void;
   handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  user: User | null;
+  openAdminLogin: () => void;
   logout: () => void;
-  login: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   isAdmin,
-  isSystemAdmin,
   setIsAdmin,
   setToast,
   handleReset,
@@ -29,9 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
   setShowClearConfirm,
   downloadExcel,
   handleFileUpload,
-  logout,
-  login,
-  user
+  openAdminLogin,
+  logout
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,18 +41,17 @@ export const Header: React.FC<HeaderProps> = ({
               const count = (window as any).adminClickCount || 0;
               (window as any).adminClickCount = count + 1;
               if (count + 1 >= 5) {
-                const nextAdmin = !isAdmin;
-                setIsAdmin(nextAdmin);
-                localStorage.setItem('is_admin', nextAdmin ? 'true' : 'false');
                 (window as any).adminClickCount = 0;
-                setToast({ 
-                  message: nextAdmin ? "관리자 모드가 활성화되었습니다." : "사용자 모드로 전환되었습니다.", 
-                  type: 'success' 
-                });
+                if (isAdmin) {
+                  setIsAdmin(false);
+                  setToast({ message: "사용자 모드로 전환되었습니다.", type: 'success' });
+                } else {
+                  openAdminLogin();
+                }
               }
             }}
           >
-            <Calendar className={`w-5 h-5 md:w-6 md:h-6 text-white ${(isAdmin || isSystemAdmin) ? 'animate-spin-slow' : ''}`} />
+            <Calendar className={`w-5 h-5 md:w-6 md:h-6 text-white ${isAdmin ? 'animate-spin-slow' : ''}`} />
           </div>
           <div 
             className="cursor-pointer group"
@@ -64,16 +59,16 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <h1 className="text-sm md:text-lg font-extrabold text-text-main tracking-tight group-hover:text-primary-purple transition-colors leading-tight">
               2026 <br className="sm:hidden" /> 문화컨설팅 운영 플랫폼
-              {(isAdmin || isSystemAdmin) && (
+              {isAdmin && (
                 <span className="block text-[10px] text-primary-purple font-black mt-0.5">
-                  {isSystemAdmin ? 'SYSTEM ADMIN' : 'ADMIN MODE'}
+                  ADMIN MODE
                 </span>
               )}
             </h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          {(isAdmin || isSystemAdmin) && (
+          {isAdmin && (
             <div className="hidden md:flex items-center gap-2 mr-2 border-r border-pastel-purple pr-4">
               <button 
                 onClick={addNewTeam}
@@ -111,34 +106,14 @@ export const Header: React.FC<HeaderProps> = ({
           )}
           
           <div className="flex items-center gap-3 pl-2">
-            {user ? (
-              <>
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-bold text-text-main">{user.displayName || '시스템권한자'}</p>
-                  <p className="text-[10px] text-text-muted">{user.email}</p>
-                </div>
-                {user.photoURL ? (
-                  <img src={user.photoURL} alt="profile" className="w-8 h-8 rounded-full border border-pastel-purple shadow-sm" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-pastel-purple flex items-center justify-center text-primary-purple font-bold text-xs">
-                    {user.displayName?.[0] || 'S'}
-                  </div>
-                )}
-                <button 
-                  onClick={logout}
-                  className="p-2 hover:bg-pastel-pink rounded-lg transition-colors text-text-muted hover:text-red-500"
-                  title="로그아웃"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
+            {isAdmin && (
               <button 
-                onClick={login}
-                className="px-4 py-2 bg-white border border-pastel-purple text-primary-purple rounded-xl text-xs font-bold hover:bg-pastel-purple transition-all flex items-center gap-2"
+                onClick={logout}
+                className="p-2 hover:bg-pastel-pink rounded-lg transition-colors text-text-muted hover:text-red-500 flex items-center gap-2 text-xs font-bold"
+                title="관리자 로그아웃"
               >
-                <LogIn className="w-4 h-4" />
-                시스템권한자 로그인
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">모드 종료</span>
               </button>
             )}
           </div>

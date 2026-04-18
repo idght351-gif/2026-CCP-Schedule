@@ -31,6 +31,19 @@
         "sentSmsTarget": { "type": "boolean" }
       },
       "required": ["our", "target", "status", "timestamp"]
+    },
+    "AdminLog": {
+      "title": "AdminLog",
+      "description": "관리자 작업 로그",
+      "type": "object",
+      "properties": {
+        "adminKey": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["adminKey", "action", "timestamp"]
     }
   },
   "firestore": {
@@ -41,6 +54,10 @@
     "/changeRequests/{requestId}": {
       "schema": "ChangeRequest",
       "description": "차수 변경 요청 컬렉션"
+    },
+    "/logs/{logId}": {
+      "schema": "AdminLog",
+      "description": "관리 감사 로그 컬렉션"
     }
   }
 }

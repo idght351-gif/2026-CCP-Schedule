@@ -52,7 +52,6 @@ import {
 
 import { Toast } from './components/Toast';
 import { Header } from './components/Header';
-import { SummaryCards } from './components/SummaryCards';
 import { IntroSection } from './components/IntroSection';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -74,10 +73,7 @@ const getManagerForKeyword = (keyword: string) => {
 };
 
 const LOCATION_MAP: Record<string, string> = {
-  '연수원1층': '현대제철연수원',
-  '연수원 1층': '현대제철연수원',
-  '연수원5층': '현대제철연수원',
-  '연수원 5층': '현대제철연수원',
+  '현대제철연수원': '현대제철연수원',
   '스틸스퀘어': '현대제철 판교오피스',
   '인천상공회의소': '인천상공회의소',
   '에코촌유스호스텔': '순천만에코촌유스호스텔',
@@ -366,64 +362,6 @@ export default function App() {
       console.error("Logging error:", e);
     }
   };
-
-  const upcomingSchedules = useMemo(() => {
-    const today = new Date(2026, 3, 13);
-    const nextWeek = new Date(2026, 3, 20);
-    return schedules.filter(s => {
-      const match = s.date.match(/(\d+)\/(\d+)/);
-      if (!match) return false;
-      const d = new Date(2026, parseInt(match[1]) - 1, parseInt(match[2]));
-      return d >= today && d <= nextWeek;
-    });
-  }, [schedules]);
-
-  const keywordStats = useMemo(() => {
-    const stats: Record<string, { total: number, upcoming: number }> = {};
-    
-    schedules.forEach(s => {
-      let kw = s.keyword.split('_').pop() || s.keyword;
-      if (s.keyword.startsWith('우수_') || s.keyword.includes('우수조직') || s.keyword.includes('우수팀')) {
-        kw = '우수조직';
-      }
-      if (!stats[kw]) stats[kw] = { total: 0, upcoming: 0 };
-      stats[kw].total++;
-    });
-
-    upcomingSchedules.forEach(s => {
-      let kw = s.keyword.split('_').pop() || s.keyword;
-      if (s.keyword.startsWith('우수_') || s.keyword.includes('우수조직') || s.keyword.includes('우수팀')) {
-        kw = '우수조직';
-      }
-      if (stats[kw]) {
-        stats[kw].upcoming++;
-      }
-    });
-
-    return Object.entries(stats)
-      .filter(([_, data]) => data.total > 0)
-      .sort((a, b) => b[1].upcoming - a[1].upcoming || b[1].total - a[1].total);
-  }, [schedules, upcomingSchedules]);
-
-  const requestStats = useMemo(() => {
-    const pendingRequests = changeRequests.filter(r => r.status === 'pending');
-    const total = changeRequests.length;
-    const pending = pendingRequests.length;
-    
-    const pendingDetails = pendingRequests.map(req => {
-      return {
-        id: req.id,
-        ourName: req.our.teamName,
-        ourDate: req.our.date,
-        ourKeyword: req.our.keyword,
-        targetName: req.target.teamName,
-        targetDate: req.target.date,
-        targetKeyword: req.target.keyword
-      };
-    }).slice(0, 3); // Show top 3
-
-    return { total, pending, pendingDetails };
-  }, [changeRequests]);
 
   // Toast auto-hide
   useEffect(() => {
@@ -792,7 +730,7 @@ ${isApproved ? `✨ 변경 확정 정보:
       count: 10,
       instructor1: '',
       instructor2: '',
-      location: '서울'
+      location: '연수원'
     };
     setSelectedTeam(newTeam);
     setIsEditing(true);
@@ -956,7 +894,9 @@ ${isApproved ? `✨ 변경 확정 정보:
         parts.push(current.trim());
         
         const firstPart = parts[0]?.replace(/^"|"$/g, '') || '';
-        const isFirstPartId = !isNaN(Number(firstPart)) && firstPart.length > 0 && firstPart.length < 10;
+        // If first part is a date like 4/29, it is NOT an ID.
+        const isDate = firstPart.includes('/') && firstPart.includes('(');
+        const isFirstPartId = !isDate && !isNaN(Number(firstPart)) && firstPart.length > 0 && firstPart.length < 10;
         
         const offset = isFirstPartId ? 1 : 0;
         const id = isFirstPartId ? Number(firstPart) : (Date.now() + index);
@@ -987,8 +927,8 @@ ${isApproved ? `✨ 변경 확정 정보:
           memo,
           instructor1,
           instructor2,
-          adminKey
-        };
+          adminKey: adminKey || undefined
+        } as Schedule;
       }).filter((s): s is Schedule => s !== null);
 
       if (newSchedules.length > 0) {
@@ -1225,13 +1165,6 @@ ${isApproved ? `✨ 변경 확정 정보:
 
       <main className="max-w-6xl mx-auto p-4 space-y-6 mt-4">
         {!isMobile && <IntroSection />}
-        <SummaryCards 
-          schedules={schedules}
-          upcomingSchedules={upcomingSchedules}
-          requestStats={requestStats}
-          keywordStats={keywordStats}
-          isDatePassed={isDatePassed}
-        />
 
         {/* Tabs - Dashboard Style */}
         <section className="border-b border-pastel-purple flex items-center justify-between">

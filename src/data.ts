@@ -10,6 +10,7 @@ export interface Schedule {
   instructor2: string;
   location: string;
   memo?: string;
+  adminKey?: string;
 }
 
 export const scheduleData: Schedule[] = [];

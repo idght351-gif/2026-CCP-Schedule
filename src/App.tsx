@@ -243,6 +243,30 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const calendarRef = useRef<FullCalendar>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsContainerRef.current) {
+      const scrollAmount = 150;
+      tabsContainerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (tabsContainerRef.current) {
+      const activeTabElement = tabsContainerRef.current.querySelector('[data-active="true"]');
+      if (activeTabElement) {
+        activeTabElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }
+  }, [activeTab]);
 
   const hasCompatibleTeams = useMemo(() => {
     if (!searchQuery) return true;
@@ -1167,11 +1191,38 @@ ${isApproved ? `✨ 변경 확정 정보:
         {!isMobile && <IntroSection />}
 
         {/* Tabs - Dashboard Style */}
-        <section className="border-b border-pastel-purple flex items-center justify-between">
-          <div className="flex gap-8">
+        <section className="border-b border-pastel-purple relative group/tabs">
+          {/* Scroll Arrows for Mobile */}
+          <div className="md:hidden absolute left-0 top-0 bottom-0 flex items-center z-10 pointer-events-none">
+            <div className="bg-gradient-to-r from-app-bg to-transparent w-8 h-full flex items-center">
+              <button 
+                onClick={() => scrollTabs('left')}
+                className="pointer-events-auto w-6 h-6 rounded-full bg-white shadow-sm border border-pastel-purple flex items-center justify-center -ml-1"
+              >
+                <ArrowRight className="w-3 h-3 text-primary-purple rotate-180" />
+              </button>
+            </div>
+          </div>
+          
+          <div className="md:hidden absolute right-0 top-0 bottom-0 flex items-center z-10 pointer-events-none">
+            <div className="bg-gradient-to-l from-app-bg to-transparent w-8 h-full flex items-center justify-end">
+              <button 
+                onClick={() => scrollTabs('right')}
+                className="pointer-events-auto w-6 h-6 rounded-full bg-white shadow-sm border border-pastel-purple flex items-center justify-center -mr-1"
+              >
+                <ArrowRight className="w-3 h-3 text-primary-purple" />
+              </button>
+            </div>
+          </div>
+
+          <div 
+            ref={tabsContainerRef}
+            className="flex gap-8 overflow-x-auto no-scrollbar scroll-smooth px-6 md:px-0"
+          >
             <button 
               onClick={() => { setActiveTab('progress'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
-              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'progress' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+              data-active={activeTab === 'progress'}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 flex-shrink-0 ${activeTab === 'progress' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
             >
               <Database className="w-4 h-4" />
               진행현황
@@ -1179,7 +1230,8 @@ ${isApproved ? `✨ 변경 확정 정보:
             </button>
             <button 
               onClick={startChangeFlow}
-              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'change' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+              data-active={activeTab === 'change'}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 flex-shrink-0 ${activeTab === 'change' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
             >
               <RefreshCw className="w-4 h-4" />
               차수변경 요청
@@ -1187,7 +1239,8 @@ ${isApproved ? `✨ 변경 확정 정보:
             </button>
             <button 
               onClick={() => { setActiveTab('calendar'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
-              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'calendar' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+              data-active={activeTab === 'calendar'}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 flex-shrink-0 ${activeTab === 'calendar' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
             >
               <Calendar className="w-4 h-4" />
               캘린더 뷰
@@ -1195,15 +1248,17 @@ ${isApproved ? `✨ 변경 확정 정보:
             </button>
             <button 
               onClick={() => { setActiveTab('requests'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
-              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'requests' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+              data-active={activeTab === 'requests'}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 flex-shrink-0 ${activeTab === 'requests' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
             >
               <CheckCircle2 className="w-4 h-4" />
               요청 내역 ({changeRequests.filter(r => r.status === 'pending').length})
-              {isAdmin && activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
+              {activeTab === 'requests' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-1 bg-primary-purple rounded-t-full" />}
             </button>
             <button 
               onClick={() => { setActiveTab('managers'); setFilterType('all'); setFilterValue(''); setActiveFilterMenu(null); }}
-              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 ${activeTab === 'managers' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
+              data-active={activeTab === 'managers'}
+              className={`pb-3 text-sm font-bold transition-all relative flex items-center gap-2 flex-shrink-0 ${activeTab === 'managers' ? 'text-primary-purple' : 'text-text-muted hover:text-text-main'}`}
             >
               <Users className="w-4 h-4" />
               담당자 안내
